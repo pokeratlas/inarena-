@@ -927,7 +927,7 @@ def _assign_waitlist_reservations_in_conn(conn, table_id: str) -> list[dict]:
     conn.execute(
         """
         UPDATE cash_waitlist
-        SET status = 'waiting', updated_at = CURRENT_TIMESTAMP
+        SET status = 'expired', updated_at = CURRENT_TIMESTAMP
         WHERE table_id = ? AND status = 'reserved'
           AND user_id NOT IN (
               SELECT user_id
