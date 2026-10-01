@@ -79,6 +79,17 @@ class PlayerActionRequest(BaseModel):
     amount: int | None = Field(default=None, ge=0)
 
 
+class AuthPlayerActionRequest(BaseModel):
+    action: str = Field(min_length=1)
+    expected_action_no: int = Field(ge=0)
+    amount: int | None = Field(default=None, ge=0)
+
+
+class BlindLevelRequest(BaseModel):
+    small_blind: int = Field(gt=0)
+    big_blind: int = Field(gt=0)
+
+
 class RecoveryRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
@@ -133,6 +144,11 @@ manager = ConnectionManager()
 @app.on_event("startup")
 def startup() -> None:
     ensure_schema()
+
+
+def _require_legacy_api() -> None:
+    if os.getenv("INARENA_ENABLE_LEGACY_API") != "1":
+        raise HTTPException(status_code=404, detail="not found")
 
 
 def _require_operator(x_operator_key: str | None) -> None:
@@ -210,6 +226,7 @@ def api_player_table_view(
 
 @app.post("/api/v1/tables/{table_id}/join")
 async def api_join(table_id: str, payload: JoinRequest) -> dict[str, Any]:
+    _require_legacy_api()
     try:
         state = join_table(table_id, payload.player_id, payload.seat_no, payload.stack)
         await manager.broadcast_state(table_id, "player_joined")
@@ -241,7 +258,7 @@ async def api_start_hand(table_id: str, payload: StartHandRequest) -> dict[str, 
 @app.post("/api/v1/tables/{table_id}/action-auth")
 async def api_authenticated_player_action(
     table_id: str,
-    payload: PlayerActionRequest,
+    payload: AuthPlayerActionRequest,
     x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
 ) -> dict[str, Any]:
     if not x_session_id:
@@ -264,6 +281,7 @@ async def api_authenticated_player_action(
 async def api_player_action(
     table_id: str, payload: PlayerActionRequest
 ) -> dict[str, Any]:
+    _require_legacy_api()
     try:
         state = submit_player_action(
             table_id,
@@ -280,6 +298,7 @@ async def api_player_action(
 
 @app.post("/api/v1/tables/{table_id}/pot")
 async def api_set_pot(table_id: str, payload: PotRequest) -> dict[str, Any]:
+    _require_legacy_api()
     try:
         state = set_hand_pot(table_id, payload.pot)
         await manager.broadcast_state(table_id, "pot_updated")
@@ -292,6 +311,7 @@ async def api_set_pot(table_id: str, payload: PotRequest) -> dict[str, Any]:
 async def api_complete_hand(
     table_id: str, payload: CompleteHandRequest
 ) -> dict[str, Any]:
+    _require_legacy_api()
     try:
         state = complete_hand(table_id, payload.payouts)
         await manager.broadcast_state(table_id, "hand_completed")
@@ -321,6 +341,7 @@ def api_auth_telegram(payload: TelegramAuthRequest) -> dict[str, Any]:
 
 @app.post("/api/v1/sessions", status_code=201)
 def api_create_session(payload: SessionCreate) -> dict[str, Any]:
+    _require_legacy_api()
     return create_session(
         payload.user_id,
         payload.provider,
