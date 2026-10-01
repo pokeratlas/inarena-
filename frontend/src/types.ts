@@ -26,6 +26,15 @@ export interface TableState {
   small_blind: number;
   big_blind: number;
   last_button_seat: number | null;
+  table_mode: "cash" | "tournament";
+  starting_stack: number;
+  blind_schedule: Array<{
+    small_blind: number;
+    big_blind: number;
+    duration_seconds: number;
+  }>;
+  blind_level_index: number;
+  blind_level_started_at: number | null;
   seats: TableSeat[];
   active_hand: ActiveHand | null;
   created_at: string;
