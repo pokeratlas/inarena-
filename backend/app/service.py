@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import secrets
@@ -29,6 +30,93 @@ def _action_timeout_seconds() -> int:
         return max(5, min(int(raw), 300))
     except ValueError:
         return 30
+
+
+def _seat_reservation_seconds() -> int:
+    raw = os.getenv("INARENA_SEAT_RESERVATION_SECONDS", "60")
+    try:
+        return max(10, min(int(raw), 900))
+    except ValueError:
+        return 60
+
+
+def _request_fingerprint(payload: dict) -> str:
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def get_idempotent_result(
+    user_id: str,
+    operation: str,
+    idempotency_key: str,
+    request_payload: dict,
+) -> dict | None:
+    fingerprint = _request_fingerprint(request_payload)
+    conn = connect()
+    try:
+        row = conn.execute(
+            """
+            SELECT request_fingerprint, response_json, status_code
+            FROM idempotency_records
+            WHERE user_id = ? AND operation = ? AND idempotency_key = ?
+            """,
+            (user_id, operation, idempotency_key),
+        ).fetchone()
+        if row is None:
+            return None
+        if row["request_fingerprint"] != fingerprint:
+            raise ConflictError("idempotency key reused with different request")
+        return {
+            "response": json.loads(row["response_json"]),
+            "status_code": int(row["status_code"]),
+        }
+    finally:
+        conn.close()
+
+
+def store_idempotent_result(
+    user_id: str,
+    operation: str,
+    idempotency_key: str,
+    request_payload: dict,
+    response: dict,
+    status_code: int = 200,
+) -> None:
+    fingerprint = _request_fingerprint(request_payload)
+    with transaction() as conn:
+        existing = conn.execute(
+            """
+            SELECT request_fingerprint, response_json, status_code
+            FROM idempotency_records
+            WHERE user_id = ? AND operation = ? AND idempotency_key = ?
+            """,
+            (user_id, operation, idempotency_key),
+        ).fetchone()
+        if existing is not None:
+            if existing["request_fingerprint"] != fingerprint:
+                raise ConflictError("idempotency key reused with different request")
+            return
+        conn.execute(
+            """
+            INSERT INTO idempotency_records(
+                user_id, operation, idempotency_key,
+                request_fingerprint, response_json, status_code
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                operation,
+                idempotency_key,
+                fingerprint,
+                json.dumps(response, separators=(",", ":")),
+                int(status_code),
+            ),
+        )
 
 
 def _session_ttl_seconds() -> int:
@@ -823,6 +911,338 @@ def list_operator_audit(table_id: str | None = None, limit: int = 100) -> list[d
         ]
     finally:
         conn.close()
+
+
+def _assign_waitlist_reservations_in_conn(conn, table_id: str) -> list[dict]:
+    now = int(time.time())
+    conn.execute(
+        """
+        UPDATE seat_reservations
+        SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+        WHERE table_id = ? AND status = 'active'
+          AND expires_at_epoch <= ?
+        """,
+        (table_id, now),
+    )
+    conn.execute(
+        """
+        UPDATE cash_waitlist
+        SET status = 'waiting', updated_at = CURRENT_TIMESTAMP
+        WHERE table_id = ? AND status = 'reserved'
+          AND user_id NOT IN (
+              SELECT user_id
+              FROM seat_reservations
+              WHERE table_id = ? AND status = 'active'
+          )
+        """,
+        (table_id, table_id),
+    )
+
+    occupied = {
+        int(row["seat_no"])
+        for row in conn.execute(
+            "SELECT seat_no FROM runtime_seats WHERE table_id = ?",
+            (table_id,),
+        ).fetchall()
+    }
+    reserved = {
+        int(row["seat_no"])
+        for row in conn.execute(
+            """
+            SELECT seat_no
+            FROM seat_reservations
+            WHERE table_id = ? AND status = 'active'
+            """,
+            (table_id,),
+        ).fetchall()
+    }
+    free = [
+        seat_no
+        for seat_no in range(1, 10)
+        if seat_no not in occupied and seat_no not in reserved
+    ]
+    created: list[dict] = []
+    for seat_no in free:
+        next_player = conn.execute(
+            """
+            SELECT id, user_id
+            FROM cash_waitlist
+            WHERE table_id = ? AND status = 'waiting'
+            ORDER BY id ASC
+            LIMIT 1
+            """,
+            (table_id,),
+        ).fetchone()
+        if next_player is None:
+            break
+        reservation_id = str(uuid.uuid4())
+        expires_at = now + _seat_reservation_seconds()
+        conn.execute(
+            """
+            INSERT INTO seat_reservations(
+                id, table_id, seat_no, user_id, status, expires_at_epoch
+            ) VALUES (?, ?, ?, ?, 'active', ?)
+            """,
+            (
+                reservation_id,
+                table_id,
+                seat_no,
+                next_player["user_id"],
+                expires_at,
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE cash_waitlist
+            SET status = 'reserved', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (next_player["id"],),
+        )
+        created.append(
+            {
+                "id": reservation_id,
+                "table_id": table_id,
+                "seat_no": seat_no,
+                "user_id": next_player["user_id"],
+                "status": "active",
+                "expires_at_epoch": expires_at,
+            }
+        )
+    return created
+
+
+def refresh_cash_waitlist(table_id: str) -> dict:
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            "SELECT table_mode FROM runtime_tables WHERE id = ?",
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "cash":
+            raise ConflictError("waitlist requires cash table")
+        _assign_waitlist_reservations_in_conn(conn, table_id)
+    return get_table_state(table_id)
+
+
+def join_cash_waitlist(table_id: str, session_id: str) -> dict:
+    session = get_session(session_id)
+    user_id = session["user_id"]
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            "SELECT table_mode, status FROM runtime_tables WHERE id = ?",
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "cash":
+            raise ConflictError("waitlist requires cash table")
+        if table["status"] == "closed":
+            raise ConflictError("table is closed")
+        seated = conn.execute(
+            """
+            SELECT 1 FROM runtime_seats
+            WHERE table_id = ? AND player_id = ?
+            """,
+            (table_id, user_id),
+        ).fetchone()
+        if seated:
+            raise ConflictError("player is already seated")
+        conn.execute(
+            """
+            INSERT INTO cash_waitlist(table_id, user_id, status)
+            VALUES (?, ?, 'waiting')
+            ON CONFLICT(table_id, user_id) DO UPDATE SET
+                status = CASE
+                    WHEN cash_waitlist.status = 'reserved' THEN 'reserved'
+                    ELSE 'waiting'
+                END,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (table_id, user_id),
+        )
+        _assign_waitlist_reservations_in_conn(conn, table_id)
+    return get_cash_waitlist_status(table_id, session_id)
+
+
+def leave_cash_waitlist(table_id: str, session_id: str) -> dict:
+    session = get_session(session_id)
+    user_id = session["user_id"]
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        row = conn.execute(
+            """
+            SELECT status
+            FROM cash_waitlist
+            WHERE table_id = ? AND user_id = ?
+            """,
+            (table_id, user_id),
+        ).fetchone()
+        if row is None or row["status"] not in {"waiting", "reserved"}:
+            raise NotFoundError("waitlist entry not found")
+        conn.execute(
+            """
+            UPDATE cash_waitlist
+            SET status = 'left', updated_at = CURRENT_TIMESTAMP
+            WHERE table_id = ? AND user_id = ?
+            """,
+            (table_id, user_id),
+        )
+        conn.execute(
+            """
+            UPDATE seat_reservations
+            SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+            WHERE table_id = ? AND user_id = ? AND status = 'active'
+            """,
+            (table_id, user_id),
+        )
+        _assign_waitlist_reservations_in_conn(conn, table_id)
+    return get_cash_waitlist_status(table_id, session_id)
+
+
+def get_cash_waitlist_status(table_id: str, session_id: str) -> dict:
+    session = get_session(session_id)
+    user_id = session["user_id"]
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        _assign_waitlist_reservations_in_conn(conn, table_id)
+        row = conn.execute(
+            """
+            SELECT id, status
+            FROM cash_waitlist
+            WHERE table_id = ? AND user_id = ?
+            """,
+            (table_id, user_id),
+        ).fetchone()
+        reservation = conn.execute(
+            """
+            SELECT id, seat_no, status, expires_at_epoch
+            FROM seat_reservations
+            WHERE table_id = ? AND user_id = ? AND status = 'active'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (table_id, user_id),
+        ).fetchone()
+        position = None
+        if row is not None and row["status"] == "waiting":
+            position = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM cash_waitlist
+                    WHERE table_id = ? AND status = 'waiting' AND id <= ?
+                    """,
+                    (table_id, row["id"]),
+                ).fetchone()["count"]
+            )
+        return {
+            "table_id": table_id,
+            "user_id": user_id,
+            "status": row["status"] if row is not None else "not_waiting",
+            "position": position,
+            "reservation": None if reservation is None else dict(reservation),
+        }
+
+
+def claim_seat_reservation(
+    table_id: str,
+    session_id: str,
+    reservation_id: str,
+    stack: int,
+) -> dict:
+    session = get_session(session_id)
+    user_id = session["user_id"]
+    now = int(time.time())
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        _assign_waitlist_reservations_in_conn(conn, table_id)
+        reservation = conn.execute(
+            """
+            SELECT id, seat_no, user_id, status, expires_at_epoch
+            FROM seat_reservations
+            WHERE id = ? AND table_id = ?
+            """,
+            (reservation_id, table_id),
+        ).fetchone()
+        if reservation is None:
+            raise NotFoundError("seat reservation not found")
+        if reservation["user_id"] != user_id:
+            raise ConflictError("reservation belongs to another player")
+        if reservation["status"] != "active":
+            raise ConflictError("reservation is not active")
+        if int(reservation["expires_at_epoch"]) <= now:
+            raise ConflictError("reservation has expired")
+
+        table = conn.execute(
+            """
+            SELECT table_mode, status, cash_buyin_min, cash_buyin_max
+            FROM runtime_tables WHERE id = ?
+            """,
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "cash":
+            raise ConflictError("reservation requires cash table")
+        if table["status"] == "closed":
+            raise ConflictError("table is closed")
+        if stack < int(table["cash_buyin_min"]) or stack > int(table["cash_buyin_max"]):
+            raise ConflictError("cash buy-in outside configured range")
+
+        if os.getenv("INARENA_ENABLE_LEGACY_API") != "1":
+            balance = _ensure_player_balance(conn, user_id)
+            if balance < stack:
+                raise ConflictError("insufficient chip balance")
+            conn.execute(
+                """
+                UPDATE player_balances
+                SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ?
+                """,
+                (stack, user_id),
+            )
+
+        try:
+            conn.execute(
+                """
+                INSERT INTO runtime_seats(table_id, seat_no, player_id, stack, status)
+                VALUES (?, ?, ?, ?, 'seated')
+                """,
+                (table_id, reservation["seat_no"], user_id, stack),
+            )
+        except Exception as exc:
+            raise ConflictError("reserved seat is no longer available") from exc
+
+        conn.execute(
+            """
+            INSERT INTO table_ledger(table_id, player_id, entry_type, amount, details_json)
+            VALUES (?, ?, 'buyin', ?, ?)
+            """,
+            (
+                table_id,
+                user_id,
+                stack,
+                json.dumps(
+                    {"reservation_id": reservation_id},
+                    separators=(",", ":"),
+                ),
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE seat_reservations
+            SET status = 'claimed', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (reservation_id,),
+        )
+        conn.execute(
+            """
+            UPDATE cash_waitlist
+            SET status = 'seated', updated_at = CURRENT_TIMESTAMP
+            WHERE table_id = ? AND user_id = ?
+            """,
+            (table_id, user_id),
+        )
+    return get_table_state(table_id)
 
 
 def set_blind_level(table_id: str, small_blind: int, big_blind: int) -> dict:
@@ -2244,6 +2664,7 @@ def stand_with_session(table_id: str, session_id: str) -> dict:
             "DELETE FROM runtime_seats WHERE table_id = ? AND player_id = ?",
             (table_id, player_id),
         )
+        _assign_waitlist_reservations_in_conn(conn, table_id)
     return get_table_state(table_id)
 
 
@@ -2610,6 +3031,16 @@ def get_table_state(table_id: str) -> dict:
             """,
             (table_id,),
         ).fetchone()
+        waitlist_count = int(
+            conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM cash_waitlist
+                WHERE table_id = ? AND status IN ('waiting', 'reserved')
+                """,
+                (table_id,),
+            ).fetchone()["count"]
+        )
         registration_count = int(
             conn.execute(
                 """
@@ -2652,6 +3083,7 @@ def get_table_state(table_id: str) -> dict:
             "registration_close_at": table["registration_close_at"],
             "late_registration_close_at": table["late_registration_close_at"],
             "registration_count": registration_count,
+            "waitlist_count": waitlist_count,
             "created_at": table["created_at"],
             "updated_at": table["updated_at"],
             "seats": [dict(row) for row in seats],
