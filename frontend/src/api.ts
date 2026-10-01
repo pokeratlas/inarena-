@@ -36,3 +36,46 @@ export function tableWebSocketUrl(tableId: string): string {
   url.search = "";
   return url.toString();
 }
+
+
+export interface AuthSession {
+  session_id: string;
+  user_id: string;
+  provider: string;
+  data: Record<string, unknown>;
+  expires_at: string | null;
+  updated_at: string;
+}
+
+export async function authenticateTelegram(
+  initData: string,
+): Promise<AuthSession> {
+  const response = await fetch(`${API_BASE}/api/v1/auth/telegram`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ init_data: initData }),
+  });
+  if (!response.ok) throw new Error("Telegram authentication failed");
+  return response.json();
+}
+
+export async function submitPlayerAction(
+  tableId: string,
+  payload: {
+    player_id: string;
+    action: "fold" | "check" | "call" | "bet" | "raise";
+    expected_action_no: number;
+    amount?: number;
+  },
+): Promise<TableState> {
+  const response = await fetch(`${API_BASE}/api/v1/tables/${tableId}/action`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Player action rejected");
+  }
+  return response.json();
+}
