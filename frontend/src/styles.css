@@ -334,3 +334,56 @@ button {
 .preset-button:disabled {
   opacity: 0.35;
 }
+
+
+.lobby-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.lobby-actions .action-button,
+.lobby-actions .ghost-button {
+  flex: 1;
+  min-height: 40px;
+}
+
+.board-cards,
+.hole-cards {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  min-height: 54px;
+  align-items: center;
+}
+
+.playing-card,
+.card-placeholder {
+  min-width: 42px;
+  height: 56px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+}
+
+.playing-card {
+  background: #f8fbff;
+  color: #0b1428;
+  border: 1px solid rgba(255,255,255,0.85);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.22);
+}
+
+.hero-card {
+  border-color: #6f8cff;
+  box-shadow:
+    0 0 0 2px rgba(86, 121, 255, 0.25),
+    0 12px 30px rgba(0,0,0,0.28);
+}
+
+.card-placeholder {
+  color: #6f82a8;
+  border: 1px dashed rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.03);
+}
