@@ -65,19 +65,26 @@ def test_full_hand_reaches_and_settles_showdown(client):
         json={"button_seat": 1},
     ).status_code == 200
 
-    action_no = 0
-    for _street in range(4):
-        for player_id in ("p2", "p1"):
-            response = client.post(
-                f"/api/v1/tables/{table_id}/action",
-                json={
-                    "player_id": player_id,
-                    "action": "check",
-                    "expected_action_no": action_no,
-                },
-            )
-            assert response.status_code == 200
-            action_no += 1
+    sequence = [
+        ("p1", "call"),
+        ("p2", "check"),
+        ("p2", "check"),
+        ("p1", "check"),
+        ("p2", "check"),
+        ("p1", "check"),
+        ("p2", "check"),
+        ("p1", "check"),
+    ]
+    for action_no, (player_id, action) in enumerate(sequence):
+        response = client.post(
+            f"/api/v1/tables/{table_id}/action",
+            json={
+                "player_id": player_id,
+                "action": action,
+                "expected_action_no": action_no,
+            },
+        )
+        assert response.status_code == 200
 
     state = client.get(f"/api/v1/tables/{table_id}").json()
     assert state["active_hand"]["state"]["showdown_pending"] is True
