@@ -87,13 +87,10 @@ def test_full_hand_reaches_and_settles_showdown(client):
         assert response.status_code == 200
 
     state = client.get(f"/api/v1/tables/{table_id}").json()
-    assert state["active_hand"]["state"]["showdown_pending"] is True
-    assert len(state["active_hand"]["state"]["board"]) == 5
+    assert state["active_hand"] is None
+    assert state["status"] == "open"
 
-    settled = client.post(
-        f"/api/v1/operator/tables/{table_id}/settle-showdown",
-        headers={"X-Operator-Key": "operator"},
-    )
-    assert settled.status_code == 200
-    assert settled.json()["active_hand"] is None
-    assert settled.json()["status"] == "open"
+    history = client.get(f"/api/v1/tables/{table_id}/hands").json()
+    assert len(history) == 1
+    assert history[0]["pot"] == 200
+    assert sum(history[0]["payouts"].values()) == 200
