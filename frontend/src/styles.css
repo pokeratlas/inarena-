@@ -498,3 +498,80 @@ button {
 .my-hand-history p {
   margin: 4px 0;
 }
+
+
+.policy-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.policy-actions .action-button {
+  flex: 1;
+  min-width: 130px;
+}
+
+.operator-dashboard {
+  display: grid;
+  gap: 18px;
+}
+
+.operator-login {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.operator-login input {
+  min-height: 46px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.06);
+  color: #fff;
+  padding: 0 14px;
+}
+
+.operator-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.operator-metrics article {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  display: grid;
+  gap: 4px;
+}
+
+.operator-metrics strong {
+  font-size: 24px;
+}
+
+.operator-metrics span,
+.operator-table-card span {
+  color: #9fb0cd;
+  font-size: 11px;
+}
+
+.operator-tables {
+  display: grid;
+  gap: 10px;
+}
+
+.operator-table-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  display: grid;
+  gap: 8px;
+}
+
+.operator-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
