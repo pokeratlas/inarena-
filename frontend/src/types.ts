@@ -6,7 +6,9 @@ export interface TableSeat {
   stack: number;
   status: string;
   rebuy_count: number;
+  addon_used: number;
   eliminated_at: string | null;
+  finish_place: number | null;
   updated_at: string;
 }
 
@@ -46,6 +48,10 @@ export interface TableState {
   rebuy_max_per_player: number;
   addon_enabled: boolean;
   addon_stack: number;
+  rebuy_window_open: boolean;
+  addon_window_open: boolean;
+  winner_player_id: string | null;
+  finished_at: string | null;
   seats: TableSeat[];
   active_hand: ActiveHand | null;
   created_at: string;
@@ -109,6 +115,7 @@ export interface OperatorDashboard {
   seated_players: number;
   eliminated_players: number;
   active_sessions: number;
+  operator_audit_entries: number;
   ledger_totals: Record<string, number>;
   tables: Array<{
     id: string;
@@ -119,5 +126,22 @@ export interface OperatorDashboard {
     big_blind: number;
     blind_level_index: number;
     blind_schedule_status: string;
+    rebuy_window_open: number;
+    addon_window_open: number;
+    winner_player_id: string | null;
+    finished_at: string | null;
   }>;
+}
+
+export interface OperatorAuditEntry {
+  id: number;
+  table_id: string | null;
+  action: string;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface PlayerBalance {
+  user_id: string;
+  balance: number;
 }
