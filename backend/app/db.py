@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 def _database_path() -> str:
@@ -364,37 +364,54 @@ def _migration_10(conn: sqlite3.Connection) -> None:
     )
 
 
-def _migration_10(conn: sqlite3.Connection) -> None:
-    table_cols = {
-        row["name"]
-        for row in conn.execute("PRAGMA table_info(runtime_tables)").fetchall()
-    }
-    additions = {
-        "tournament_status": "TEXT NOT NULL DEFAULT 'scheduled'",
-        "scheduled_start_at": "INTEGER",
-        "registration_open_at": "INTEGER",
-        "registration_close_at": "INTEGER",
-        "late_registration_close_at": "INTEGER",
-    }
-    for name, ddl in additions.items():
-        if name not in table_cols:
-            conn.execute(
-                f"ALTER TABLE runtime_tables ADD COLUMN {name} {ddl}"
-            )
-
+def _migration_11(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
-        CREATE TABLE IF NOT EXISTS tournament_registrations (
+        CREATE TABLE IF NOT EXISTS cash_waitlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             table_id TEXT NOT NULL REFERENCES runtime_tables(id) ON DELETE CASCADE,
             user_id TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'registered',
-            registered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            withdrawn_at TEXT,
-            PRIMARY KEY (table_id, user_id)
+            status TEXT NOT NULL DEFAULT 'waiting',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(table_id, user_id)
         );
 
-        CREATE INDEX IF NOT EXISTS idx_tournament_registrations_table_status
-        ON tournament_registrations(table_id, status);
+        CREATE INDEX IF NOT EXISTS idx_cash_waitlist_table_status_id
+        ON cash_waitlist(table_id, status, id);
+
+        CREATE TABLE IF NOT EXISTS seat_reservations (
+            id TEXT PRIMARY KEY,
+            table_id TEXT NOT NULL REFERENCES runtime_tables(id) ON DELETE CASCADE,
+            seat_no INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            expires_at_epoch INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_active_reservation_seat
+        ON seat_reservations(table_id, seat_no)
+        WHERE status = 'active';
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_active_reservation_user
+        ON seat_reservations(table_id, user_id)
+        WHERE status = 'active';
+
+        CREATE TABLE IF NOT EXISTS idempotency_records (
+            user_id TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            request_fingerprint TEXT NOT NULL,
+            response_json TEXT NOT NULL,
+            status_code INTEGER NOT NULL DEFAULT 200,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, operation, idempotency_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_idempotency_records_created_at
+        ON idempotency_records(created_at);
         """
     )
 
@@ -410,6 +427,7 @@ MIGRATIONS = {
     8: _migration_8,
     9: _migration_9,
     10: _migration_10,
+    11: _migration_11,
 }
 
 
