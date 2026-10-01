@@ -20,6 +20,7 @@ from .service import (
     create_session,
     create_table,
     delete_session,
+    get_player_balance,
     get_player_table_view,
     get_session,
     get_table_state,
@@ -29,12 +30,15 @@ from .service import (
     list_hand_actions,
     list_hand_history,
     list_player_hand_history,
+    list_operator_audit,
     list_recovery_actions,
     list_table_events_since,
     list_tables,
     set_blind_level,
     set_hand_pot,
+    close_table,
     operator_abort_hand,
+    operator_adjust_balance,
     operator_dashboard,
     refresh_session,
     set_blind_schedule_status,
@@ -121,6 +125,15 @@ class TableConfigRequest(BaseModel):
     rebuy_max_per_player: int = Field(default=0, ge=0)
     addon_enabled: bool = False
     addon_stack: int = Field(default=0, ge=0)
+
+
+class BalanceAdjustRequest(BaseModel):
+    user_id: str = Field(min_length=1)
+    delta: int
+
+
+class WindowControlRequest(BaseModel):
+    open: bool
 
 
 class RecoveryRequest(BaseModel):
@@ -470,6 +483,31 @@ async def operator_start_hand(
         raise _http_error(exc) from exc
 
 
+@app.post("/api/v1/operator/balance")
+def operator_balance_adjustment(
+    payload: BalanceAdjustRequest,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        return operator_adjust_balance(payload.user_id, payload.delta)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/operator/audit")
+def operator_audit_log(
+    table_id: str | None = None,
+    limit: int = 100,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> list[dict[str, Any]]:
+    _require_operator(x_operator_key)
+    try:
+        return list_operator_audit(table_id, limit)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
 @app.get("/api/v1/operator/dashboard")
 def operator_dashboard_view(
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
@@ -527,6 +565,39 @@ def operator_tables(
 ) -> list[dict[str, Any]]:
     _require_operator(x_operator_key)
     return list_tables()
+
+
+@app.post("/api/v1/operator/tables/{table_id}/window/{window}")
+async def operator_window_control(
+    table_id: str,
+    window: str,
+    payload: WindowControlRequest,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = set_tournament_window(table_id, window, payload.open)
+        await manager.broadcast_state(
+            table_id,
+            f"{window}_window_{'opened' if payload.open else 'closed'}",
+        )
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/operator/tables/{table_id}/close")
+async def operator_close_table(
+    table_id: str,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = close_table(table_id)
+        await manager.broadcast_state(table_id, "table_closed")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
 
 
 @app.post("/api/v1/operator/tables/{table_id}/blind-schedule/{command}")
@@ -662,6 +733,18 @@ async def api_tournament_addon(
         state = tournament_addon(table_id, x_session_id)
         await manager.broadcast_state(table_id, "player_addon")
         return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/me/balance")
+def api_my_balance(
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        return get_player_balance(x_session_id)
     except Exception as exc:
         raise _http_error(exc) from exc
 
