@@ -10,10 +10,12 @@ from pydantic import BaseModel, Field
 from .db import ensure_schema
 from .telegram_auth import TelegramAuthError, validate_init_data
 from .service import (
+    AuthenticationError,
     ConflictError,
     append_table_event,
     NotFoundError,
     complete_hand,
+    configure_table,
     create_session,
     create_table,
     delete_session,
@@ -32,6 +34,9 @@ from .service import (
     set_blind_level,
     set_hand_pot,
     operator_abort_hand,
+    operator_dashboard,
+    refresh_session,
+    resolve_expired_action,
     set_operator_status,
     settle_showdown,
     stand,
@@ -91,6 +96,20 @@ class AuthPlayerActionRequest(BaseModel):
 class BlindLevelRequest(BaseModel):
     small_blind: int = Field(gt=0)
     big_blind: int = Field(gt=0)
+
+
+class BlindScheduleLevel(BaseModel):
+    small_blind: int = Field(gt=0)
+    big_blind: int = Field(gt=0)
+    duration_seconds: int = Field(gt=0)
+
+
+class TableConfigRequest(BaseModel):
+    table_mode: str
+    starting_stack: int = Field(gt=0)
+    small_blind: int = Field(gt=0)
+    big_blind: int = Field(gt=0)
+    blind_schedule: list[BlindScheduleLevel] = Field(default_factory=list)
 
 
 class RecoveryRequest(BaseModel):
@@ -163,6 +182,8 @@ def _require_operator(x_operator_key: str | None) -> None:
 
 
 def _http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, AuthenticationError):
+        return HTTPException(status_code=401, detail=str(exc))
     if isinstance(exc, NotFoundError):
         return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, ConflictError):
@@ -371,8 +392,33 @@ def api_create_session(payload: SessionCreate) -> dict[str, Any]:
     )
 
 
+@app.get("/api/v1/auth/session")
+def api_current_session(
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        return get_session(x_session_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/auth/refresh")
+def api_refresh_session(
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        return refresh_session(x_session_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
 @app.get("/api/v1/sessions/{session_id}")
 def api_get_session(session_id: str) -> dict[str, Any]:
+    _require_legacy_api()
     try:
         return get_session(session_id)
     except Exception as exc:
@@ -381,6 +427,7 @@ def api_get_session(session_id: str) -> dict[str, Any]:
 
 @app.delete("/api/v1/sessions/{session_id}", status_code=204)
 def api_delete_session(session_id: str) -> Response:
+    _require_legacy_api()
     try:
         delete_session(session_id)
         return Response(status_code=204)
@@ -407,6 +454,50 @@ async def operator_start_hand(
     try:
         state = start_hand(table_id, payload.button_seat)
         await manager.broadcast_state(table_id, "hand_started")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/operator/dashboard")
+def operator_dashboard_view(
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    return operator_dashboard()
+
+
+@app.post("/api/v1/operator/tables/{table_id}/configure")
+async def operator_configure_table(
+    table_id: str,
+    payload: TableConfigRequest,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = configure_table(
+            table_id,
+            payload.table_mode,
+            payload.starting_stack,
+            payload.small_blind,
+            payload.big_blind,
+            [level.model_dump() for level in payload.blind_schedule],
+        )
+        await manager.broadcast_state(table_id, "table_configured")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/operator/tables/{table_id}/resolve-timeout")
+async def operator_resolve_timeout(
+    table_id: str,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = resolve_expired_action(table_id)
+        await manager.broadcast_state(table_id, "action_timeout_resolved")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
