@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 def _database_path() -> str:
@@ -277,6 +277,58 @@ def _migration_8(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_9(conn: sqlite3.Connection) -> None:
+    table_cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(runtime_tables)").fetchall()
+    }
+    additions = {
+        "rebuy_window_open": "INTEGER NOT NULL DEFAULT 1",
+        "addon_window_open": "INTEGER NOT NULL DEFAULT 1",
+        "winner_player_id": "TEXT",
+        "finished_at": "TEXT",
+    }
+    for name, ddl in additions.items():
+        if name not in table_cols:
+            conn.execute(
+                f"ALTER TABLE runtime_tables ADD COLUMN {name} {ddl}"
+            )
+
+    seat_cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(runtime_seats)").fetchall()
+    }
+    if "addon_used" not in seat_cols:
+        conn.execute(
+            "ALTER TABLE runtime_seats ADD COLUMN addon_used INTEGER NOT NULL DEFAULT 0"
+        )
+    if "finish_place" not in seat_cols:
+        conn.execute(
+            "ALTER TABLE runtime_seats ADD COLUMN finish_place INTEGER"
+        )
+
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS player_balances (
+            user_id TEXT PRIMARY KEY,
+            balance INTEGER NOT NULL DEFAULT 0 CHECK(balance >= 0),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS operator_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            table_id TEXT REFERENCES runtime_tables(id) ON DELETE CASCADE,
+            action TEXT NOT NULL,
+            details_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_operator_audit_table_id
+        ON operator_audit(table_id, id);
+        """
+    )
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
@@ -286,6 +338,7 @@ MIGRATIONS = {
     6: _migration_6,
     7: _migration_7,
     8: _migration_8,
+    9: _migration_9,
 }
 
 
