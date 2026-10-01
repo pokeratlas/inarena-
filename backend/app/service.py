@@ -651,6 +651,7 @@ def register_tournament(table_id: str, session_id: str) -> dict:
             """,
             (table_id, user_id),
         ).fetchone()
+        _enqueue_realtime_outbox(conn, table_id, "tournament_registered")
 
     return {
         "table_id": table_id,
@@ -695,6 +696,7 @@ def unregister_tournament(table_id: str, session_id: str) -> dict:
             """,
             (table_id, user_id),
         )
+        _enqueue_realtime_outbox(conn, table_id, "tournament_unregistered")
     return {
         "table_id": table_id,
         "user_id": user_id,
