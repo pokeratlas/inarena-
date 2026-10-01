@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import os
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from .db import ensure_schema
@@ -19,6 +20,7 @@ from .service import (
     join_table,
     list_tables,
     set_hand_pot,
+    set_operator_status,
     stand,
     start_hand,
 )
@@ -90,6 +92,14 @@ manager = ConnectionManager()
 @app.on_event("startup")
 def startup() -> None:
     ensure_schema()
+
+
+def _require_operator(x_operator_key: str | None) -> None:
+    expected = os.getenv("INARENA_OPERATOR_KEY")
+    if not expected:
+        raise HTTPException(status_code=503, detail="operator access is not configured")
+    if x_operator_key != expected:
+        raise HTTPException(status_code=401, detail="invalid operator key")
 
 
 def _http_error(exc: Exception) -> HTTPException:
@@ -198,6 +208,42 @@ def api_delete_session(session_id: str) -> Response:
     try:
         delete_session(session_id)
         return Response(status_code=204)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/operator/tables")
+def operator_tables(
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> list[dict[str, Any]]:
+    _require_operator(x_operator_key)
+    return list_tables()
+
+
+@app.post("/api/v1/operator/tables/{table_id}/pause")
+async def operator_pause_table(
+    table_id: str,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = set_operator_status(table_id, "paused")
+        await manager.broadcast_state(table_id)
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/operator/tables/{table_id}/resume")
+async def operator_resume_table(
+    table_id: str,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = set_operator_status(table_id, "open")
+        await manager.broadcast_state(table_id)
+        return state
     except Exception as exc:
         raise _http_error(exc) from exc
 
