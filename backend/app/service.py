@@ -237,6 +237,27 @@ def complete_hand(table_id: str, payouts: dict[str, int]) -> dict:
     return get_table_state(table_id)
 
 
+def set_operator_status(table_id: str, status: str) -> dict:
+    if status not in {"paused", "open"}:
+        raise ConflictError("unsupported operator status")
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        active = conn.execute(
+            "SELECT 1 FROM active_hands WHERE table_id = ?", (table_id,)
+        ).fetchone()
+        resolved = "playing" if status == "open" and active else status
+        conn.execute(
+            """
+            UPDATE runtime_tables
+            SET status = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (resolved, table_id),
+        )
+    return get_table_state(table_id)
+
+
 def create_session(
     user_id: str,
     provider: str,
