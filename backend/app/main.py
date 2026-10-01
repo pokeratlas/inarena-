@@ -20,6 +20,7 @@ from .service import (
     create_session,
     create_table,
     delete_session,
+    dispatch_table_outbox,
     get_cash_waitlist_status,
     get_idempotent_result,
     reserve_idempotency_command,
@@ -191,21 +192,26 @@ class ConnectionManager:
             self.connections.pop(table_id, None)
 
     async def broadcast_state(self, table_id: str, event_type: str = "table_state") -> None:
-        state = get_table_state(table_id)
-        event = append_table_event(table_id, event_type, state)
+        events = dispatch_table_outbox(table_id)
+        if not events:
+            state = get_table_state(table_id)
+            events = [append_table_event(table_id, event_type, state)]
+
         dead: list[WebSocket] = []
-        for socket in self.connections.get(table_id, set()):
-            try:
-                await socket.send_json(
-                    {
-                        "type": "table_event",
-                        "seq": event["seq"],
-                        "event_type": event["event_type"],
-                        "data": state,
-                    }
-                )
-            except Exception:
-                dead.append(socket)
+        for event in events:
+            state = event["payload"]
+            for socket in self.connections.get(table_id, set()):
+                try:
+                    await socket.send_json(
+                        {
+                            "type": "table_event",
+                            "seq": event["seq"],
+                            "event_type": event["event_type"],
+                            "data": state,
+                        }
+                    )
+                except Exception:
+                    dead.append(socket)
         for socket in dead:
             self.disconnect(table_id, socket)
 
