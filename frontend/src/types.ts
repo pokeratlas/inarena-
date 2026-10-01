@@ -23,6 +23,9 @@ export interface TableState {
   id: string;
   name: string;
   status: string;
+  small_blind: number;
+  big_blind: number;
+  last_button_seat: number | null;
   seats: TableSeat[];
   active_hand: ActiveHand | null;
   created_at: string;
