@@ -19,6 +19,10 @@ class ConflictError(RuntimeError):
     pass
 
 
+class AuthenticationError(RuntimeError):
+    pass
+
+
 def _action_timeout_seconds() -> int:
     raw = os.getenv("INARENA_ACTION_TIMEOUT_SECONDS", "30")
     try:
@@ -1268,7 +1272,7 @@ def get_session(session_id: str) -> dict:
             raise NotFoundError("session not found")
         if row["expires_at"]:
             if _parse_iso_utc(row["expires_at"]) <= datetime.now(timezone.utc):
-                raise ConflictError("session expired")
+                raise AuthenticationError("session expired")
         return {
             "session_id": row["session_id"],
             "user_id": row["user_id"],
