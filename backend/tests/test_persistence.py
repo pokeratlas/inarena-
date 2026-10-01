@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 def client(tmp_path, monkeypatch):
     db_path = tmp_path / "inarena-test.sqlite3"
     monkeypatch.setenv("INARENA_DB_PATH", str(db_path))
+    monkeypatch.setenv("INARENA_OPERATOR_KEY", "test-operator-key")
 
     import app.db as db
     import app.service as service
@@ -220,3 +221,37 @@ def test_websocket_reconnect_receives_persisted_snapshot(client):
         assert message["type"] == "table_state"
         assert message["data"]["active_hand"] is not None
         assert len(message["data"]["seats"]) == 2
+
+
+def test_operator_endpoints_require_key(client):
+    test_client, _ = client
+    unauthorized = test_client.get("/api/v1/operator/tables")
+    assert unauthorized.status_code == 401
+
+    authorized = test_client.get(
+        "/api/v1/operator/tables",
+        headers={"X-Operator-Key": "test-operator-key"},
+    )
+    assert authorized.status_code == 200
+
+
+def test_operator_can_pause_and_resume_active_table(client):
+    test_client, _ = client
+    table_id = create_started_table(test_client)
+    headers = {"X-Operator-Key": "test-operator-key"}
+
+    paused = test_client.post(
+        f"/api/v1/operator/tables/{table_id}/pause",
+        headers=headers,
+    )
+    assert paused.status_code == 200
+    assert paused.json()["status"] == "paused"
+    assert paused.json()["active_hand"] is not None
+
+    resumed = test_client.post(
+        f"/api/v1/operator/tables/{table_id}/resume",
+        headers=headers,
+    )
+    assert resumed.status_code == 200
+    assert resumed.json()["status"] == "playing"
+    assert resumed.json()["active_hand"] is not None
