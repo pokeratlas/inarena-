@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   type AuthSession,
   authenticateTelegram,
+  claimSeatReservation,
+  getCashWaitlistStatus,
   getCurrentSession,
   getOperatorAudit,
   getOperatorDashboard,
@@ -14,11 +16,13 @@ import {
   getPlayerTableView,
   refreshCurrentSession,
   joinAuthenticatedTable,
+  joinCashWaitlist,
   operatorAdjustBalance,
   operatorBlindScheduleCommand,
   operatorCloseTable,
   operatorTournamentCommand,
   operatorWindowControl,
+  leaveCashWaitlist,
   listTables,
   registerTournament,
   standAuthenticated,
@@ -27,7 +31,7 @@ import {
   tournamentRebuy,
   unregisterTournament,
 } from "./api";
-import type { AppMode, HandActionEntry, HandHistoryEntry, OperatorAuditEntry, OperatorDashboard, PlayerBalance, PlayerHandHistoryEntry, TableState, TournamentRegistration } from "./types";
+import type { AppMode, CashWaitlistStatus, HandActionEntry, HandHistoryEntry, OperatorAuditEntry, OperatorDashboard, PlayerBalance, PlayerHandHistoryEntry, TableState, TournamentRegistration } from "./types";
 import { useTableRealtime } from "./useTableRealtime";
 
 const offlineTabs = ["Главная", "Турниры", "Профиль"];
@@ -594,6 +598,7 @@ function OnlineLobby({
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [balance, setBalance] = useState<PlayerBalance | null>(null);
   const [registrations, setRegistrations] = useState<Record<string, TournamentRegistration>>({});
+  const [waitlists, setWaitlists] = useState<Record<string, CashWaitlistStatus>>({});
   const [tableOpen, setTableOpen] = useState(false);
   const realtime = useTableRealtime(tableOpen ? selectedTableId : null);
 
@@ -672,6 +677,40 @@ function OnlineLobby({
     };
   }, [session, tables]);
 
+  useEffect(() => {
+    if (!session || tables.length === 0) {
+      setWaitlists({});
+      return;
+    }
+
+    let active = true;
+    const cashTables = tables.filter((table) => table.table_mode === "cash");
+    void Promise.all(
+      cashTables.map(async (table) => {
+        try {
+          const status = await getCashWaitlistStatus(
+            table.id,
+            session.session_id,
+          );
+          return [table.id, status] as const;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((rows) => {
+      if (!active) return;
+      const next: Record<string, CashWaitlistStatus> = {};
+      for (const row of rows) {
+        if (row) next[row[0]] = row[1];
+      }
+      setWaitlists(next);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [session, tables]);
+
   if (tableOpen && realtime.state) {
     return (
       <main className="app-main table-main">
@@ -721,7 +760,7 @@ function OnlineLobby({
                 <span>
                   {table.table_mode === "tournament"
                     ? `Tournament · ${table.tournament_status} · ${table.registration_count} registered`
-                    : "Cash"}
+                    : `Cash · waitlist ${table.waitlist_count}`}
                   {" · "}{table.small_blind}/{table.big_blind} · {table.seats.length} игроков
                   {table.winner_player_id ? ` · Winner ${table.winner_player_id}` : ""}
                 </span>
@@ -816,42 +855,136 @@ function OnlineLobby({
                         </button>
                       ) : null}
                     </>
-                  ) : !seated && session && firstFreeSeat ? (
-                    <button
-                      className="action-button action-primary"
-                      type="button"
-                      disabled={
-                        table.status === "closed" ||
-                        (balance?.balance ?? 0) <
-                          Math.min(
-                            table.cash_buyin_max,
-                            Math.max(table.cash_buyin_min, table.starting_stack),
-                          )
-                      }
-                      onClick={() => {
-                        const buyIn = Math.min(
-                          table.cash_buyin_max,
-                          Math.max(table.cash_buyin_min, table.starting_stack),
-                        );
-                        void joinAuthenticatedTable(
-                          table.id,
-                          session.session_id,
-                          firstFreeSeat,
-                          buyIn,
-                        ).then((updated) => {
-                          setTables((current) =>
-                            current.map((item) =>
-                              item.id === updated.id ? updated : item,
-                            ),
-                          );
-                          setSelectedTableId(table.id);
-                          setTableOpen(true);
-                          onTableScreenChange(true);
-                        });
-                      }}
-                    >
-                      Сесть · Seat {firstFreeSeat}
-                    </button>
+                  ) : !seated && session ? (
+                    <>
+                      {waitlists[table.id]?.reservation ? (
+                        <button
+                          className="action-button action-primary"
+                          type="button"
+                          onClick={() => {
+                            const buyIn = Math.min(
+                              table.cash_buyin_max,
+                              Math.max(
+                                table.cash_buyin_min,
+                                table.starting_stack,
+                              ),
+                            );
+                            const reservation =
+                              waitlists[table.id].reservation;
+                            if (!reservation) return;
+                            void claimSeatReservation(
+                              table.id,
+                              session.session_id,
+                              reservation.id,
+                              buyIn,
+                            ).then((updated) => {
+                              setTables((current) =>
+                                current.map((item) =>
+                                  item.id === updated.id ? updated : item,
+                                ),
+                              );
+                              setWaitlists((current) => ({
+                                ...current,
+                                [table.id]: {
+                                  ...current[table.id],
+                                  status: "seated",
+                                  reservation: null,
+                                },
+                              }));
+                              setSelectedTableId(table.id);
+                              setTableOpen(true);
+                              onTableScreenChange(true);
+                            });
+                          }}
+                        >
+                          Занять Seat {waitlists[table.id].reservation?.seat_no}
+                        </button>
+                      ) : waitlists[table.id]?.status === "waiting" ? (
+                        <>
+                          <span className="waitlist-status">
+                            Очередь #{waitlists[table.id].position ?? "—"}
+                          </span>
+                          <button
+                            className="ghost-button"
+                            type="button"
+                            onClick={() =>
+                              void leaveCashWaitlist(
+                                table.id,
+                                session.session_id,
+                              ).then((status) =>
+                                setWaitlists((current) => ({
+                                  ...current,
+                                  [table.id]: status,
+                                })),
+                              )
+                            }
+                          >
+                            Выйти из очереди
+                          </button>
+                        </>
+                      ) : firstFreeSeat && table.waitlist_count === 0 ? (
+                        <button
+                          className="action-button action-primary"
+                          type="button"
+                          disabled={
+                            table.status === "closed" ||
+                            (balance?.balance ?? 0) <
+                              Math.min(
+                                table.cash_buyin_max,
+                                Math.max(
+                                  table.cash_buyin_min,
+                                  table.starting_stack,
+                                ),
+                              )
+                          }
+                          onClick={() => {
+                            const buyIn = Math.min(
+                              table.cash_buyin_max,
+                              Math.max(
+                                table.cash_buyin_min,
+                                table.starting_stack,
+                              ),
+                            );
+                            void joinAuthenticatedTable(
+                              table.id,
+                              session.session_id,
+                              firstFreeSeat,
+                              buyIn,
+                            ).then((updated) => {
+                              setTables((current) =>
+                                current.map((item) =>
+                                  item.id === updated.id ? updated : item,
+                                ),
+                              );
+                              setSelectedTableId(table.id);
+                              setTableOpen(true);
+                              onTableScreenChange(true);
+                            });
+                          }}
+                        >
+                          Сесть · Seat {firstFreeSeat}
+                        </button>
+                      ) : (
+                        <button
+                          className="action-button action-primary"
+                          type="button"
+                          disabled={table.status === "closed"}
+                          onClick={() =>
+                            void joinCashWaitlist(
+                              table.id,
+                              session.session_id,
+                            ).then((status) =>
+                              setWaitlists((current) => ({
+                                ...current,
+                                [table.id]: status,
+                              })),
+                            )
+                          }
+                        >
+                          Встать в очередь
+                        </button>
+                      )}
+                    </>
                   ) : null}
                 </div>
               </article>
