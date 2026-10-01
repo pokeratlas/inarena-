@@ -327,6 +327,82 @@ def latest_table_seq(table_id: str) -> int:
         conn.close()
 
 
+def operator_abort_hand(table_id: str, reason: str) -> dict:
+    reason = reason.strip()
+    if not reason:
+        raise ConflictError("recovery reason is required")
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            "SELECT status FROM runtime_tables WHERE id = ?", (table_id,)
+        ).fetchone()
+        if table["status"] != "paused":
+            raise ConflictError("table must be paused before recovery")
+
+        hand = conn.execute(
+            "SELECT hand_id, state_json FROM active_hands WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()
+        if hand is None:
+            raise NotFoundError("no active hand")
+
+        hand_state = json.loads(hand["state_json"])
+        conn.execute(
+            """
+            INSERT INTO recovery_actions(
+                table_id, hand_id, action, reason, details_json
+            ) VALUES (?, ?, 'abort_hand', ?, ?)
+            """,
+            (
+                table_id,
+                hand["hand_id"],
+                reason,
+                json.dumps({"hand_state": hand_state}, separators=(",", ":")),
+            ),
+        )
+        conn.execute("DELETE FROM active_hands WHERE table_id = ?", (table_id,))
+        conn.execute(
+            """
+            UPDATE runtime_tables
+            SET status = 'open', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (table_id,),
+        )
+    return get_table_state(table_id)
+
+
+def list_recovery_actions(table_id: str, limit: int = 100) -> list[dict]:
+    conn = connect()
+    try:
+        _require_table(conn, table_id)
+        rows = conn.execute(
+            """
+            SELECT id, table_id, hand_id, action, reason, details_json, created_at
+            FROM recovery_actions
+            WHERE table_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (table_id, max(1, min(limit, 500))),
+        ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "table_id": row["table_id"],
+                "hand_id": row["hand_id"],
+                "action": row["action"],
+                "reason": row["reason"],
+                "details": json.loads(row["details_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
 def create_session(
     user_id: str,
     provider: str,
