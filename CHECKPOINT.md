@@ -14,75 +14,76 @@ The project is cloud-first and does not depend on a specific Windows PC.
 
 ## Verified backend
 Implemented and verified in GitHub Actions:
-- schema migrations through v8
+- schema migrations through v9
 - cash / tournament table modes
-- configurable starting stack
+- internal non-monetary player chip balance model
+- operator balance adjustment with audit
+- production cash buy-in debits player chip balance atomically
+- authenticated cash-out credits player chip balance atomically
 - cash buy-in min/max validation
-- cash-out accounting through persistent table ledger
-- tournament elimination status at zero stack
-- rebuy policy: enabled/disabled, rebuy stack, per-player rebuy limit
-- add-on policy and configured add-on stack
-- authenticated rebuy / add-on endpoints
+- persistent cash/table ledger
+- tournament elimination at zero stack
+- finish-place tracking after rebuy window closes
+- tournament winner / finished state
+- rebuy window open/close controls
+- add-on window open/close controls
+- per-player rebuy limits
+- one-time add-on enforcement
+- operator table close
+- closed tables reject new joins / new hands
+- operator audit log
 - persisted tournament blind schedules
-- blind schedule start / pause / reset controls
-- automatic blind-level advancement while schedule is running
-- operator table configuration API
-- enriched operator dashboard metrics and table status
-- server-side action deadline policy
-- automatic timeout resolution: check when legal, otherwise fold
-- automatic timeout resolution from the realtime WebSocket loop
-- session TTL enforcement with 401 on expiry
-- authenticated session restore / refresh
-- tournament joins force configured starting stack
-- production legacy API hardening
+- blind schedule start / pause / reset
+- automatic blind-level advancement while running
+- server-side action timeout policy and automatic realtime timeout resolution
+- session TTL / validation / refresh
+- production legacy mutation API hardening
 - operator-only table lifecycle
 - authenticated seating, standing, private view and player actions
 - full NL Hold'em blind/button/action-order/min-raise/side-pot/showdown ruleset
 - automatic uncontested and showdown settlement
 - public and authenticated per-player hand history
 - monotonic realtime sequence log and reconnect replay
-- protected operator pause/resume/recovery controls
 
 ## Verified frontend
 - React + TypeScript + Vite
 - Concept 2 mobile shell
-- OFFLINE / ONLINE architecture
 - live ONLINE lobby
-- cash/tournament mode and blind level visible in lobby
-- tournament seating uses configured starting stack
-- authenticated Rebuy / Add-on controls
-- authenticated cash-table leave flow
-- Telegram session restore from local storage
-- session validation and refresh on app reopen
-- fullscreen live table
-- D / SB / BB badges
-- board and authenticated private hole cards
-- action timer driven by persisted server deadline
-- reconnect locks actions until realtime is restored
-- Fold / Check / Call / Bet / Raise
-- 1/2 Pot / 3/4 Pot / Pot / All-in sizing
-- public last-hand action log
-- authenticated private hand history
-- operator dashboard frontend available at `?operator=1`
-- operator key entered at runtime and kept in sessionStorage, not embedded in the bundle
-- dashboard metrics and tournament blind schedule start/pause/reset controls
+- internal chip balance displayed to authenticated player
+- cash buy-in button respects configured min/max and available chip balance
+- tournament finish places and winner state
+- authenticated Rebuy / one-time Add-on controls
+- controls respect rebuy/add-on windows
+- authenticated cash-table leave / cash-out flow
+- Telegram session restore / refresh
+- fullscreen live table with D / SB / BB, board and private cards
+- server-backed action timer and reconnect lock
+- public and private hand history
+- operator dashboard at `?operator=1`
+- operator chip-balance adjustment
+- blind schedule controls
+- rebuy/add-on window controls
+- table close control
+- operator audit log
+- operator key remains runtime-only in sessionStorage
 
 ## CI
 Latest backend CI: PASS.
 Latest frontend CI: PASS.
-Tournament elimination / rebuy / add-on tests: PASS.
-Cash buy-in min/max and cash-out ledger tests: PASS.
-Blind schedule start/pause/reset tests: PASS.
-Timeout/session/dashboard tests: PASS.
-Existing NLH rules/reconnect/security regression suite: PASS.
+Schema v9 tests: PASS.
+One-time add-on tests: PASS.
+Tournament finish-place / winner tests: PASS.
+Production cash balance debit/credit tests: PASS.
+Table-close / operator-audit tests: PASS.
+Existing NLH rules, timeout, reconnect, session, side-pot and security regression suite: PASS.
 
 ## Current external blocker
 The connected Vercel integration currently returns no accessible Vercel team/account, so a public Vercel preview cannot be published from this session yet.
 
 ## Next
-1. Add one-time add-on tracking so add-on cannot be repeated indefinitely.
-2. Add tournament finishing/ranking state when active players fall to one.
-3. Add cash-table balance/account model instead of direct chip-stack buy-in input.
-4. Add operator controls for rebuy/add-on windows and table close.
-5. Add table-level audit/history view in operator dashboard.
-6. Add production deployment configuration and preview when Vercel access is available.
+1. Add tournament registration lifecycle and late-registration cutoff.
+2. Add tournament status model: scheduled / registering / running / finished / cancelled.
+3. Add cash-table waitlist and seat reservation timeout.
+4. Add idempotency keys for all player mutation endpoints.
+5. Add operator export/report endpoints for tables, tournament results and chip ledger.
+6. Add deployment configuration / persistent production database and publish preview when hosting access is available.
