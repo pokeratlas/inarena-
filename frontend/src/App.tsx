@@ -4,16 +4,21 @@ import {
   type AuthSession,
   authenticateTelegram,
   getCurrentSession,
+  getOperatorDashboard,
   getHandActions,
   getHandHistory,
   getMyHandHistory,
   getPlayerTableView,
   refreshCurrentSession,
   joinAuthenticatedTable,
+  operatorBlindScheduleCommand,
   listTables,
+  standAuthenticated,
   submitPlayerAction,
+  tournamentAddon,
+  tournamentRebuy,
 } from "./api";
-import type { AppMode, HandActionEntry, HandHistoryEntry, PlayerHandHistoryEntry, TableState } from "./types";
+import type { AppMode, HandActionEntry, HandHistoryEntry, OperatorDashboard, PlayerHandHistoryEntry, TableState } from "./types";
 import { useTableRealtime } from "./useTableRealtime";
 
 const offlineTabs = ["Главная", "Турниры", "Профиль"];
@@ -260,6 +265,91 @@ function PlayerActions({
   );
 }
 
+function TablePolicyControls({
+  table,
+  playerId,
+  sessionId,
+  onChanged,
+  onLeave,
+}: {
+  table: TableState;
+  playerId: string | null;
+  sessionId: string | null;
+  onChanged: () => void;
+  onLeave: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const seat = table.seats.find((item) => item.player_id === playerId) ?? null;
+
+  if (!seat || !sessionId || table.active_hand) return null;
+
+  const run = async (operation: () => Promise<TableState>) => {
+    setPending(true);
+    setError(null);
+    try {
+      await operation();
+      onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Operation failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <section className="policy-actions" aria-label="Управление участием">
+      {table.table_mode === "tournament" ? (
+        <>
+          {seat.status === "eliminated" &&
+          table.rebuy_enabled &&
+          seat.rebuy_count < table.rebuy_max_per_player ? (
+            <button
+              className="action-button action-primary"
+              disabled={pending}
+              type="button"
+              onClick={() =>
+                void run(() => tournamentRebuy(table.id, sessionId))
+              }
+            >
+              Rebuy +{table.rebuy_stack}
+            </button>
+          ) : null}
+          {seat.status === "seated" && table.addon_enabled ? (
+            <button
+              className="action-button"
+              disabled={pending}
+              type="button"
+              onClick={() =>
+                void run(() => tournamentAddon(table.id, sessionId))
+              }
+            >
+              Add-on +{table.addon_stack}
+            </button>
+          ) : null}
+        </>
+      ) : (
+        <button
+          className="action-button"
+          disabled={pending}
+          type="button"
+          onClick={() =>
+            void run(async () => {
+              const state = await standAuthenticated(table.id, sessionId);
+              onLeave();
+              return state;
+            })
+          }
+        >
+          Покинуть стол
+        </button>
+      )}
+      {error ? <p role="alert">{error}</p> : null}
+    </section>
+  );
+}
+
+
 function OnlineTable({
   table,
   playerId,
@@ -417,6 +507,16 @@ function OnlineTable({
         playerId={playerId}
         sessionId={sessionId}
         connected={connected}
+      />
+
+      <TablePolicyControls
+        table={table}
+        playerId={playerId}
+        sessionId={sessionId}
+        onChanged={() => {
+          window.setTimeout(() => window.location.reload(), 150);
+        }}
+        onLeave={onBack}
       />
 
       <section className="history-panel" aria-label="История раздач">
@@ -601,6 +701,101 @@ function OnlineLobby({
   );
 }
 
+function OperatorDashboardView() {
+  const [operatorKey, setOperatorKey] = useState(
+    () => window.sessionStorage.getItem("inarena_operator_key") ?? "",
+  );
+  const [dashboard, setDashboard] = useState<OperatorDashboard | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async (key = operatorKey) => {
+    setError(null);
+    try {
+      const data = await getOperatorDashboard(key);
+      setDashboard(data);
+      window.sessionStorage.setItem("inarena_operator_key", key);
+    } catch (cause) {
+      setDashboard(null);
+      setError(cause instanceof Error ? cause.message : "Operator error");
+    }
+  };
+
+  useEffect(() => {
+    if (operatorKey) void load(operatorKey);
+  }, []);
+
+  return (
+    <main className="app-main operator-dashboard">
+      <header className="app-header">
+        <p>INARENA OPERATOR</p>
+        <h1>Dashboard</h1>
+      </header>
+
+      <div className="operator-login">
+        <input
+          type="password"
+          placeholder="Operator key"
+          value={operatorKey}
+          onChange={(event) => setOperatorKey(event.target.value)}
+        />
+        <button
+          className="action-button action-primary"
+          type="button"
+          onClick={() => void load()}
+        >
+          Подключиться
+        </button>
+      </div>
+
+      {error ? <p role="alert">{error}</p> : null}
+
+      {dashboard ? (
+        <>
+          <section className="operator-metrics">
+            <article><strong>{dashboard.tables_total}</strong><span>Tables</span></article>
+            <article><strong>{dashboard.active_hands}</strong><span>Active hands</span></article>
+            <article><strong>{dashboard.seated_players}</strong><span>Players</span></article>
+            <article><strong>{dashboard.eliminated_players}</strong><span>Eliminated</span></article>
+            <article><strong>{dashboard.active_sessions}</strong><span>Sessions</span></article>
+          </section>
+
+          <section className="operator-tables">
+            {dashboard.tables.map((table) => (
+              <article className="operator-table-card" key={table.id}>
+                <strong>{table.name}</strong>
+                <span>
+                  {table.table_mode} · {table.small_blind}/{table.big_blind} · {table.status}
+                </span>
+                {table.table_mode === "tournament" ? (
+                  <div className="operator-actions">
+                    {(["start", "pause", "reset"] as const).map((command) => (
+                      <button
+                        key={command}
+                        className="ghost-button"
+                        type="button"
+                        onClick={() =>
+                          void operatorBlindScheduleCommand(
+                            table.id,
+                            command,
+                            operatorKey,
+                          ).then(() => load())
+                        }
+                      >
+                        {command}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </section>
+        </>
+      ) : null}
+    </main>
+  );
+}
+
+
 function OfflineHome() {
   return (
     <main className="app-main">
@@ -616,10 +811,24 @@ function OfflineHome() {
 }
 
 export default function App() {
+  const operatorMode =
+    new URLSearchParams(window.location.search).get("operator") === "1";
   const [mode, setMode] = useState<AppMode>("offline");
   const telegram = useTelegramSession();
   const [tableScreenOpen, setTableScreenOpen] = useState(false);
   const tabs = mode === "online" ? onlineTabs : offlineTabs;
+
+  if (operatorMode) {
+    return (
+      <div className="app-shell">
+        <div className="brand-row">
+          <span className="brand-mark">INARENA</span>
+          <span className="status-dot" aria-hidden="true" />
+        </div>
+        <OperatorDashboardView />
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">
