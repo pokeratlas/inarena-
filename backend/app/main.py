@@ -28,6 +28,7 @@ from .service import (
     list_recovery_actions,
     list_table_events_since,
     list_tables,
+    set_blind_level,
     set_hand_pot,
     operator_abort_hand,
     set_operator_status,
@@ -373,6 +374,25 @@ def operator_tables(
 ) -> list[dict[str, Any]]:
     _require_operator(x_operator_key)
     return list_tables()
+
+
+@app.post("/api/v1/operator/tables/{table_id}/blinds")
+async def operator_set_blinds(
+    table_id: str,
+    payload: BlindLevelRequest,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = set_blind_level(
+            table_id,
+            payload.small_blind,
+            payload.big_blind,
+        )
+        await manager.broadcast_state(table_id, "blind_level_changed")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
 
 
 @app.post("/api/v1/operator/tables/{table_id}/pause")
