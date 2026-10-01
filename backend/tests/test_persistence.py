@@ -218,7 +218,8 @@ def test_websocket_reconnect_receives_persisted_snapshot(client):
 
     with test_client.websocket_connect(f"/ws/tables/{table_id}") as socket:
         message = socket.receive_json()
-        assert message["type"] == "table_state"
+        assert message["type"] == "table_snapshot"
+        assert isinstance(message["seq"], int)
         assert message["data"]["active_hand"] is not None
         assert len(message["data"]["seats"]) == 2
 
@@ -255,3 +256,86 @@ def test_operator_can_pause_and_resume_active_table(client):
     assert resumed.status_code == 200
     assert resumed.json()["status"] == "playing"
     assert resumed.json()["active_hand"] is not None
+
+
+def test_schema_migrations_reach_expected_version(client):
+    test_client, db_path = client
+    assert test_client.get("/health").status_code == 200
+
+    conn = sqlite3.connect(db_path)
+    try:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        assert version == 2
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert "realtime_events" in tables
+    finally:
+        conn.close()
+
+
+def test_realtime_events_are_monotonic_and_replayable(client):
+    test_client, _ = client
+    table = test_client.post("/api/v1/tables", json={"name": "Replay"}).json()
+    table_id = table["id"]
+
+    first = test_client.post(
+        f"/api/v1/tables/{table_id}/join",
+        json={"player_id": "p1", "seat_no": 1, "stack": 1000},
+    )
+    assert first.status_code == 200
+
+    events = test_client.get(
+        f"/api/v1/tables/{table_id}/events",
+        params={"after_seq": 0},
+    )
+    assert events.status_code == 200
+    data = events.json()
+    assert len(data) >= 1
+    seqs = [event["seq"] for event in data]
+    assert seqs == sorted(seqs)
+    assert data[-1]["event_type"] == "player_joined"
+
+    after = seqs[-1]
+    second = test_client.post(
+        f"/api/v1/tables/{table_id}/stand",
+        json={"player_id": "p1"},
+    )
+    assert second.status_code == 200
+
+    replay = test_client.get(
+        f"/api/v1/tables/{table_id}/events",
+        params={"after_seq": after},
+    ).json()
+    assert len(replay) == 1
+    assert replay[0]["seq"] > after
+    assert replay[0]["event_type"] == "player_stood"
+
+
+def test_websocket_sync_replays_events_after_sequence(client):
+    test_client, _ = client
+    table = test_client.post("/api/v1/tables", json={"name": "WS Replay"}).json()
+    table_id = table["id"]
+
+    with test_client.websocket_connect(f"/ws/tables/{table_id}") as socket:
+        snapshot = socket.receive_json()
+        assert snapshot["type"] == "table_snapshot"
+        base_seq = snapshot["seq"]
+
+        joined = test_client.post(
+            f"/api/v1/tables/{table_id}/join",
+            json={"player_id": "p1", "seat_no": 1, "stack": 1000},
+        )
+        assert joined.status_code == 200
+
+        pushed = socket.receive_json()
+        assert pushed["type"] == "table_event"
+        assert pushed["seq"] > base_seq
+
+        socket.send_json({"type": "sync", "after_seq": base_seq})
+        replay = socket.receive_json()
+        assert replay["type"] == "table_replay"
+        assert replay["events"][0]["seq"] > base_seq
