@@ -20,13 +20,17 @@ def _reload_app():
 def test_legacy_join_and_action_are_hidden_outside_test_mode(tmp_path, monkeypatch):
     monkeypatch.setenv("INARENA_DB_PATH", str(tmp_path / "prod.sqlite3"))
     monkeypatch.delenv("INARENA_ENABLE_LEGACY_API", raising=False)
+    monkeypatch.setenv("INARENA_OPERATOR_KEY", "operator")
 
     main = _reload_app()
     with TestClient(main.app) as client:
-        table_id = client.post(
-            "/api/v1/tables",
+        created = client.post(
+            "/api/v1/operator/tables",
+            headers={"X-Operator-Key": "operator"},
             json={"name": "Prod"},
-        ).json()["id"]
+        )
+        assert created.status_code == 201
+        table_id = created.json()["id"]
 
         legacy_join = client.post(
             f"/api/v1/tables/{table_id}/join",
