@@ -1,4 +1,4 @@
-import type { PlayerTableView, TableEvent, TableState } from "./types";
+import type { HandActionEntry, HandHistoryEntry, PlayerTableView, TableEvent, TableState } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
@@ -119,5 +119,31 @@ export async function submitPlayerAction(
     const body = await response.json().catch(() => null);
     throw new Error(body?.detail ?? "Player action rejected");
   }
+  return response.json();
+}
+
+
+export async function getHandHistory(
+  tableId: string,
+  limit = 10,
+): Promise<HandHistoryEntry[]> {
+  const url = new URL(
+    `${API_BASE}/api/v1/tables/${tableId}/hands`,
+    window.location.origin,
+  );
+  url.searchParams.set("limit", String(limit));
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("Unable to load hand history");
+  return response.json();
+}
+
+export async function getHandActions(
+  tableId: string,
+  handId: string,
+): Promise<HandActionEntry[]> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tables/${tableId}/hands/${handId}/actions`,
+  );
+  if (!response.ok) throw new Error("Unable to load hand actions");
   return response.json();
 }
