@@ -364,6 +364,41 @@ def _migration_10(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_10(conn: sqlite3.Connection) -> None:
+    table_cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(runtime_tables)").fetchall()
+    }
+    additions = {
+        "tournament_status": "TEXT NOT NULL DEFAULT 'scheduled'",
+        "scheduled_start_at": "INTEGER",
+        "registration_open_at": "INTEGER",
+        "registration_close_at": "INTEGER",
+        "late_registration_close_at": "INTEGER",
+    }
+    for name, ddl in additions.items():
+        if name not in table_cols:
+            conn.execute(
+                f"ALTER TABLE runtime_tables ADD COLUMN {name} {ddl}"
+            )
+
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS tournament_registrations (
+            table_id TEXT NOT NULL REFERENCES runtime_tables(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'registered',
+            registered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            withdrawn_at TEXT,
+            PRIMARY KEY (table_id, user_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_tournament_registrations_table_status
+        ON tournament_registrations(table_id, status);
+        """
+    )
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
