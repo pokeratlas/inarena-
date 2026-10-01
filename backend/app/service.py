@@ -73,6 +73,74 @@ def _normalize_blind_schedule(schedule: list[dict]) -> list[dict]:
     return normalized
 
 
+def _audit_operator(
+    conn,
+    action: str,
+    table_id: str | None = None,
+    details: dict | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO operator_audit(table_id, action, details_json)
+        VALUES (?, ?, ?)
+        """,
+        (
+            table_id,
+            action,
+            json.dumps(details or {}, separators=(",", ":")),
+        ),
+    )
+
+
+def _ensure_player_balance(conn, user_id: str) -> int:
+    conn.execute(
+        """
+        INSERT INTO player_balances(user_id, balance)
+        VALUES (?, 0)
+        ON CONFLICT(user_id) DO NOTHING
+        """,
+        (user_id,),
+    )
+    row = conn.execute(
+        "SELECT balance FROM player_balances WHERE user_id = ?",
+        (user_id,),
+    ).fetchone()
+    return int(row["balance"])
+
+
+def get_player_balance(session_id: str) -> dict:
+    session = get_session(session_id)
+    conn = connect()
+    try:
+        balance = _ensure_player_balance(conn, session["user_id"])
+        conn.commit()
+        return {"user_id": session["user_id"], "balance": balance}
+    finally:
+        conn.close()
+
+
+def operator_adjust_balance(user_id: str, delta: int) -> dict:
+    with transaction() as conn:
+        current = _ensure_player_balance(conn, user_id)
+        updated = current + int(delta)
+        if updated < 0:
+            raise ConflictError("balance cannot become negative")
+        conn.execute(
+            """
+            UPDATE player_balances
+            SET balance = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+            """,
+            (updated, user_id),
+        )
+        _audit_operator(
+            conn,
+            "balance_adjusted",
+            details={"user_id": user_id, "delta": int(delta), "balance": updated},
+        )
+    return {"user_id": user_id, "balance": updated}
+
+
 def configure_table(
     table_id: str,
     table_mode: str,
@@ -153,6 +221,17 @@ def configure_table(
                 "running" if table_mode == "tournament" else "paused",
                 table_id,
             ),
+        )
+        _audit_operator(
+            conn,
+            "table_configured",
+            table_id,
+            {
+                "table_mode": table_mode,
+                "starting_stack": starting_stack,
+                "small_blind": small_blind,
+                "big_blind": big_blind,
+            },
         )
     return get_table_state(table_id)
 
@@ -285,7 +364,127 @@ def set_blind_schedule_status(table_id: str, command: str) -> dict:
                     table_id,
                 ),
             )
+        _audit_operator(conn, f"blind_schedule_{command}", table_id)
     return get_table_state(table_id)
+
+
+def set_tournament_window(
+    table_id: str,
+    window: str,
+    is_open: bool,
+) -> dict:
+    if window not in {"rebuy", "addon"}:
+        raise ConflictError("unsupported tournament window")
+
+    column = "rebuy_window_open" if window == "rebuy" else "addon_window_open"
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            "SELECT table_mode FROM runtime_tables WHERE id = ?",
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "tournament":
+            raise ConflictError("tournament window requires tournament mode")
+        conn.execute(
+            f"""
+            UPDATE runtime_tables
+            SET {column} = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (int(bool(is_open)), table_id),
+        )
+
+        if window == "rebuy" and not is_open:
+            rows = conn.execute(
+                """
+                SELECT player_id, eliminated_at
+                FROM runtime_seats
+                WHERE table_id = ? AND status = 'eliminated'
+                  AND finish_place IS NULL
+                ORDER BY eliminated_at ASC, seat_no ASC
+                """,
+                (table_id,),
+            ).fetchall()
+            total = conn.execute(
+                "SELECT COUNT(*) AS count FROM runtime_seats WHERE table_id = ?",
+                (table_id,),
+            ).fetchone()["count"]
+            for index, row in enumerate(rows):
+                conn.execute(
+                    """
+                    UPDATE runtime_seats
+                    SET finish_place = ?
+                    WHERE table_id = ? AND player_id = ?
+                    """,
+                    (int(total) - index, table_id, row["player_id"]),
+                )
+
+        _audit_operator(
+            conn,
+            f"{window}_window_{'opened' if is_open else 'closed'}",
+            table_id,
+        )
+    return get_table_state(table_id)
+
+
+def close_table(table_id: str) -> dict:
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        active = conn.execute(
+            "SELECT 1 FROM active_hands WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()
+        if active:
+            raise ConflictError("cannot close table during an active hand")
+        conn.execute(
+            """
+            UPDATE runtime_tables
+            SET status = 'closed', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (table_id,),
+        )
+        _audit_operator(conn, "table_closed", table_id)
+    return get_table_state(table_id)
+
+
+def list_operator_audit(table_id: str | None = None, limit: int = 100) -> list[dict]:
+    conn = connect()
+    try:
+        if table_id is None:
+            rows = conn.execute(
+                """
+                SELECT id, table_id, action, details_json, created_at
+                FROM operator_audit
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (max(1, min(limit, 500)),),
+            ).fetchall()
+        else:
+            _require_table(conn, table_id)
+            rows = conn.execute(
+                """
+                SELECT id, table_id, action, details_json, created_at
+                FROM operator_audit
+                WHERE table_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (table_id, max(1, min(limit, 500))),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "table_id": row["table_id"],
+                "action": row["action"],
+                "details": json.loads(row["details_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
 
 
 def set_blind_level(table_id: str, small_blind: int, big_blind: int) -> dict:
@@ -437,12 +636,15 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
             """
             SELECT small_blind, big_blind, last_button_seat,
                    table_mode, starting_stack, blind_level_index,
-                   blind_level_started_at
+                   blind_level_started_at, status
             FROM runtime_tables
             WHERE id = ?
             """,
             (table_id,),
         ).fetchone()
+
+        if table["status"] == "closed":
+            raise ConflictError("table is closed")
 
         existing = conn.execute(
             "SELECT hand_id FROM active_hands WHERE table_id = ?", (table_id,)
@@ -1054,10 +1256,15 @@ def _settle_payouts_in_conn(
         player_id: stack + int(payouts.get(player_id, 0))
         for player_id, stack in players.items()
     }
-    table_mode = conn.execute(
-        "SELECT table_mode FROM runtime_tables WHERE id = ?",
+    table_row = conn.execute(
+        """
+        SELECT table_mode, rebuy_window_open
+        FROM runtime_tables
+        WHERE id = ?
+        """,
         (table_id,),
-    ).fetchone()["table_mode"]
+    ).fetchone()
+    table_mode = table_row["table_mode"]
 
     for player_id, stack in new_stacks.items():
         if table_mode == "tournament" and stack == 0:
@@ -1079,6 +1286,74 @@ def _settle_payouts_in_conn(
                 WHERE table_id = ? AND player_id = ?
                 """,
                 (stack, table_id, player_id),
+            )
+
+    if table_mode == "tournament":
+        total_players = int(
+            conn.execute(
+                "SELECT COUNT(*) AS count FROM runtime_seats WHERE table_id = ?",
+                (table_id,),
+            ).fetchone()["count"]
+        )
+        if not bool(table_row["rebuy_window_open"]):
+            pending = conn.execute(
+                """
+                SELECT player_id
+                FROM runtime_seats
+                WHERE table_id = ? AND status = 'eliminated'
+                  AND finish_place IS NULL
+                ORDER BY eliminated_at ASC, seat_no ASC
+                """,
+                (table_id,),
+            ).fetchall()
+            already = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM runtime_seats
+                    WHERE table_id = ? AND finish_place IS NOT NULL
+                    """,
+                    (table_id,),
+                ).fetchone()["count"]
+            )
+            next_place = total_players - already
+            for row in pending:
+                conn.execute(
+                    """
+                    UPDATE runtime_seats
+                    SET finish_place = ?
+                    WHERE table_id = ? AND player_id = ?
+                    """,
+                    (next_place, table_id, row["player_id"]),
+                )
+                next_place -= 1
+
+        remaining = conn.execute(
+            """
+            SELECT player_id
+            FROM runtime_seats
+            WHERE table_id = ? AND status = 'seated' AND stack > 0
+            ORDER BY seat_no
+            """,
+            (table_id,),
+        ).fetchall()
+        if len(remaining) == 1 and not bool(table_row["rebuy_window_open"]):
+            winner = remaining[0]["player_id"]
+            conn.execute(
+                """
+                UPDATE runtime_seats
+                SET finish_place = 1
+                WHERE table_id = ? AND player_id = ?
+                """,
+                (table_id, winner),
+            )
+            conn.execute(
+                """
+                UPDATE runtime_tables
+                SET winner_player_id = ?, finished_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (winner, table_id),
             )
 
     conn.execute(
@@ -1460,7 +1735,7 @@ def tournament_rebuy(table_id: str, session_id: str) -> dict:
         table = conn.execute(
             """
             SELECT table_mode, rebuy_enabled, rebuy_stack,
-                   rebuy_max_per_player
+                   rebuy_max_per_player, rebuy_window_open
             FROM runtime_tables
             WHERE id = ?
             """,
@@ -1468,6 +1743,8 @@ def tournament_rebuy(table_id: str, session_id: str) -> dict:
         ).fetchone()
         if table["table_mode"] != "tournament" or not table["rebuy_enabled"]:
             raise ConflictError("rebuy is not enabled")
+        if not table["rebuy_window_open"]:
+            raise ConflictError("rebuy window is closed")
         active = conn.execute(
             "SELECT 1 FROM active_hands WHERE table_id = ?", (table_id,)
         ).fetchone()
@@ -1492,7 +1769,7 @@ def tournament_rebuy(table_id: str, session_id: str) -> dict:
             """
             UPDATE runtime_seats
             SET stack = ?, status = 'seated', eliminated_at = NULL,
-                rebuy_count = rebuy_count + 1,
+                finish_place = NULL, rebuy_count = rebuy_count + 1,
                 updated_at = CURRENT_TIMESTAMP
             WHERE table_id = ? AND player_id = ?
             """,
@@ -1515,7 +1792,8 @@ def tournament_addon(table_id: str, session_id: str) -> dict:
         _require_table(conn, table_id)
         table = conn.execute(
             """
-            SELECT table_mode, addon_enabled, addon_stack
+            SELECT table_mode, addon_enabled, addon_stack,
+                   addon_window_open
             FROM runtime_tables
             WHERE id = ?
             """,
@@ -1523,6 +1801,8 @@ def tournament_addon(table_id: str, session_id: str) -> dict:
         ).fetchone()
         if table["table_mode"] != "tournament" or not table["addon_enabled"]:
             raise ConflictError("add-on is not enabled")
+        if not table["addon_window_open"]:
+            raise ConflictError("add-on window is closed")
         active = conn.execute(
             "SELECT 1 FROM active_hands WHERE table_id = ?", (table_id,)
         ).fetchone()
@@ -1530,7 +1810,7 @@ def tournament_addon(table_id: str, session_id: str) -> dict:
             raise ConflictError("add-on is only allowed between hands")
         seat = conn.execute(
             """
-            SELECT status, stack
+            SELECT status, stack, addon_used
             FROM runtime_seats
             WHERE table_id = ? AND player_id = ?
             """,
@@ -1538,13 +1818,16 @@ def tournament_addon(table_id: str, session_id: str) -> dict:
         ).fetchone()
         if seat is None or seat["status"] != "seated":
             raise ConflictError("player is not eligible for add-on")
+        if bool(seat["addon_used"]):
+            raise ConflictError("add-on already used")
         amount = int(table["addon_stack"])
         if amount <= 0:
             raise ConflictError("invalid add-on stack")
         conn.execute(
             """
             UPDATE runtime_seats
-            SET stack = stack + ?, updated_at = CURRENT_TIMESTAMP
+            SET stack = stack + ?, addon_used = 1,
+                updated_at = CURRENT_TIMESTAMP
             WHERE table_id = ? AND player_id = ?
             """,
             (amount, table_id, player_id),
@@ -1561,7 +1844,57 @@ def tournament_addon(table_id: str, session_id: str) -> dict:
 
 def stand_with_session(table_id: str, session_id: str) -> dict:
     session = get_session(session_id)
-    return stand(table_id, session["user_id"])
+    player_id = session["user_id"]
+
+    if os.getenv("INARENA_ENABLE_LEGACY_API") == "1":
+        return stand(table_id, player_id)
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        active = conn.execute(
+            "SELECT 1 FROM active_hands WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()
+        if active:
+            raise ConflictError("cannot stand during an active hand")
+        table = conn.execute(
+            "SELECT table_mode FROM runtime_tables WHERE id = ?",
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "cash":
+            raise ConflictError("tournament players cannot leave the table")
+        seat = conn.execute(
+            """
+            SELECT stack
+            FROM runtime_seats
+            WHERE table_id = ? AND player_id = ?
+            """,
+            (table_id, player_id),
+        ).fetchone()
+        if seat is None:
+            raise NotFoundError("player is not seated")
+        cash_out = int(seat["stack"])
+        _ensure_player_balance(conn, player_id)
+        conn.execute(
+            """
+            UPDATE player_balances
+            SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+            """,
+            (cash_out, player_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO table_ledger(table_id, player_id, entry_type, amount, details_json)
+            VALUES (?, ?, 'cashout', ?, '{}')
+            """,
+            (table_id, player_id, cash_out),
+        )
+        conn.execute(
+            "DELETE FROM runtime_seats WHERE table_id = ? AND player_id = ?",
+            (table_id, player_id),
+        )
+    return get_table_state(table_id)
 
 
 def join_table_with_session(
@@ -1571,11 +1904,14 @@ def join_table_with_session(
     stack: int,
 ) -> dict:
     session = get_session(session_id)
+    player_id = session["user_id"]
+
     conn = connect()
     try:
         row = conn.execute(
             """
-            SELECT table_mode, starting_stack
+            SELECT table_mode, starting_stack, cash_buyin_min,
+                   cash_buyin_max, status
             FROM runtime_tables
             WHERE id = ?
             """,
@@ -1583,19 +1919,53 @@ def join_table_with_session(
         ).fetchone()
         if row is None:
             raise NotFoundError("table not found")
+        if row["status"] == "closed":
+            raise ConflictError("table is closed")
+        mode = row["table_mode"]
         resolved_stack = (
             int(row["starting_stack"])
-            if row["table_mode"] == "tournament"
-            else stack
+            if mode == "tournament"
+            else int(stack)
         )
     finally:
         conn.close()
-    return join_table(
-        table_id,
-        session["user_id"],
-        seat_no,
-        resolved_stack,
-    )
+
+    if mode == "tournament" or os.getenv("INARENA_ENABLE_LEGACY_API") == "1":
+        return join_table(table_id, player_id, seat_no, resolved_stack)
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        if resolved_stack < int(row["cash_buyin_min"]) or resolved_stack > int(row["cash_buyin_max"]):
+            raise ConflictError("cash buy-in outside configured range")
+        balance = _ensure_player_balance(conn, player_id)
+        if balance < resolved_stack:
+            raise ConflictError("insufficient chip balance")
+        try:
+            conn.execute(
+                """
+                INSERT INTO runtime_seats(table_id, seat_no, player_id, stack, status)
+                VALUES (?, ?, ?, ?, 'seated')
+                """,
+                (table_id, seat_no, player_id, resolved_stack),
+            )
+        except Exception as exc:
+            raise ConflictError("seat or player already occupied") from exc
+        conn.execute(
+            """
+            UPDATE player_balances
+            SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+            """,
+            (resolved_stack, player_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO table_ledger(table_id, player_id, entry_type, amount, details_json)
+            VALUES (?, ?, 'buyin', ?, '{}')
+            """,
+            (table_id, player_id, resolved_stack),
+        )
+    return get_table_state(table_id)
 
 
 def get_player_table_view(table_id: str, session_id: str) -> dict:
@@ -1782,7 +2152,9 @@ def operator_dashboard() -> dict:
         tables = conn.execute(
             """
             SELECT id, name, status, table_mode, small_blind, big_blind,
-                   blind_level_index, blind_schedule_status
+                   blind_level_index, blind_schedule_status,
+                   rebuy_window_open, addon_window_open,
+                   winner_player_id, finished_at
             FROM runtime_tables
             ORDER BY created_at DESC
             """
@@ -1804,6 +2176,11 @@ def operator_dashboard() -> dict:
             """
         ).fetchall()
         ledger_totals = {row["entry_type"]: int(row["total"]) for row in ledger}
+        audit_count = int(
+            conn.execute(
+                "SELECT COUNT(*) AS count FROM operator_audit"
+            ).fetchone()["count"]
+        )
         active_sessions = 0
         now = datetime.now(timezone.utc)
         for row in conn.execute(
@@ -1824,6 +2201,7 @@ def operator_dashboard() -> dict:
             "seated_players": int(seated_players),
             "eliminated_players": int(eliminated_players),
             "active_sessions": int(active_sessions),
+            "operator_audit_entries": audit_count,
             "ledger_totals": ledger_totals,
             "tables": [dict(row) for row in tables],
         }
@@ -1843,6 +2221,8 @@ def get_table_state(table_id: str) -> dict:
                    blind_schedule_paused_at, cash_buyin_min,
                    cash_buyin_max, rebuy_enabled, rebuy_stack,
                    rebuy_max_per_player, addon_enabled, addon_stack,
+                   rebuy_window_open, addon_window_open,
+                   winner_player_id, finished_at,
                    created_at, updated_at
             FROM runtime_tables
             WHERE id = ?
@@ -1855,7 +2235,7 @@ def get_table_state(table_id: str) -> dict:
         seats = conn.execute(
             """
             SELECT seat_no, player_id, stack, status, rebuy_count,
-                   eliminated_at, updated_at
+                   addon_used, eliminated_at, finish_place, updated_at
             FROM runtime_seats
             WHERE table_id = ?
             ORDER BY seat_no
@@ -1893,6 +2273,10 @@ def get_table_state(table_id: str) -> dict:
             "rebuy_max_per_player": table["rebuy_max_per_player"],
             "addon_enabled": bool(table["addon_enabled"]),
             "addon_stack": table["addon_stack"],
+            "rebuy_window_open": bool(table["rebuy_window_open"]),
+            "addon_window_open": bool(table["addon_window_open"]),
+            "winner_player_id": table["winner_player_id"],
+            "finished_at": table["finished_at"],
             "created_at": table["created_at"],
             "updated_at": table["updated_at"],
             "seats": [dict(row) for row in seats],
