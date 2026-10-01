@@ -1,4 +1,4 @@
-import type { HandActionEntry, HandHistoryEntry, OperatorDashboard, PlayerHandHistoryEntry, PlayerTableView, TableEvent, TableState } from "./types";
+import type { HandActionEntry, HandHistoryEntry, OperatorAuditEntry, OperatorDashboard, PlayerBalance, PlayerHandHistoryEntry, PlayerTableView, TableEvent, TableState } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
@@ -268,5 +268,96 @@ export async function operatorBlindScheduleCommand(
     const body = await response.json().catch(() => null);
     throw new Error(body?.detail ?? "Schedule command failed");
   }
+  return response.json();
+}
+
+
+export async function getMyBalance(
+  sessionId: string,
+): Promise<PlayerBalance> {
+  const response = await fetch(`${API_BASE}/api/v1/me/balance`, {
+    headers: { "X-Session-ID": sessionId },
+  });
+  if (!response.ok) throw new Error("Unable to load chip balance");
+  return response.json();
+}
+
+export async function operatorAdjustBalance(
+  userId: string,
+  delta: number,
+  operatorKey: string,
+): Promise<PlayerBalance> {
+  const response = await fetch(`${API_BASE}/api/v1/operator/balance`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Operator-Key": operatorKey,
+    },
+    body: JSON.stringify({ user_id: userId, delta }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Balance adjustment failed");
+  }
+  return response.json();
+}
+
+export async function operatorWindowControl(
+  tableId: string,
+  windowName: "rebuy" | "addon",
+  open: boolean,
+  operatorKey: string,
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/operator/tables/${tableId}/window/${windowName}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Operator-Key": operatorKey,
+      },
+      body: JSON.stringify({ open }),
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Window control failed");
+  }
+  return response.json();
+}
+
+export async function operatorCloseTable(
+  tableId: string,
+  operatorKey: string,
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/operator/tables/${tableId}/close`,
+    {
+      method: "POST",
+      headers: { "X-Operator-Key": operatorKey },
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Unable to close table");
+  }
+  return response.json();
+}
+
+export async function getOperatorAudit(
+  operatorKey: string,
+  tableId?: string,
+  limit = 30,
+): Promise<OperatorAuditEntry[]> {
+  const url = new URL(
+    `${API_BASE}/api/v1/operator/audit`,
+    window.location.origin,
+  );
+  url.searchParams.set("limit", String(limit));
+  if (tableId) url.searchParams.set("table_id", tableId);
+  const response = await fetch(url, {
+    headers: { "X-Operator-Key": operatorKey },
+  });
+  if (!response.ok) throw new Error("Unable to load operator audit");
   return response.json();
 }
