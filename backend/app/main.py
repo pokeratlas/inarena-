@@ -21,6 +21,7 @@ from .service import (
     create_table,
     delete_session,
     get_cash_waitlist_status,
+    get_idempotent_result,
     get_player_balance,
     get_player_table_view,
     get_tournament_registration,
@@ -54,6 +55,7 @@ from .service import (
     set_tournament_status,
     set_tournament_window,
     settle_showdown,
+    store_idempotent_result,
     stand,
     stand_with_session,
     start_hand,
@@ -228,6 +230,43 @@ def _require_operator(x_operator_key: str | None) -> None:
         raise HTTPException(status_code=401, detail="invalid operator key")
 
 
+def _idempotent_replay(
+    session_id: str,
+    operation: str,
+    idempotency_key: str | None,
+    payload: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not idempotency_key:
+        return None
+    user_id = get_session(session_id)["user_id"]
+    existing = get_idempotent_result(
+        user_id,
+        operation,
+        idempotency_key,
+        payload,
+    )
+    return None if existing is None else existing["response"]
+
+
+def _idempotent_store(
+    session_id: str,
+    operation: str,
+    idempotency_key: str | None,
+    payload: dict[str, Any],
+    response: dict[str, Any],
+) -> None:
+    if not idempotency_key:
+        return
+    user_id = get_session(session_id)["user_id"]
+    store_idempotent_result(
+        user_id,
+        operation,
+        idempotency_key,
+        payload,
+        response,
+    )
+
+
 def _http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, AuthenticationError):
         return HTTPException(status_code=401, detail=str(exc))
@@ -331,15 +370,36 @@ async def api_join_authenticated(
     table_id: str,
     payload: AuthJoinRequest,
     x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     if not x_session_id:
         raise HTTPException(status_code=401, detail="session is required")
     try:
+        request_payload = {
+            "table_id": table_id,
+            "seat_no": payload.seat_no,
+            "stack": payload.stack,
+        }
+        replay = _idempotent_replay(
+            x_session_id,
+            "join-auth",
+            idempotency_key,
+            request_payload,
+        )
+        if replay is not None:
+            return replay
         state = join_table_with_session(
             table_id,
             x_session_id,
             payload.seat_no,
             payload.stack,
+        )
+        _idempotent_store(
+            x_session_id,
+            "join-auth",
+            idempotency_key,
+            request_payload,
+            state,
         )
         await manager.broadcast_state(table_id, "player_joined")
         return state
@@ -375,11 +435,28 @@ async def api_join(table_id: str, payload: JoinRequest) -> dict[str, Any]:
 async def api_stand_authenticated(
     table_id: str,
     x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     if not x_session_id:
         raise HTTPException(status_code=401, detail="session is required")
     try:
+        request_payload = {"table_id": table_id}
+        replay = _idempotent_replay(
+            x_session_id,
+            "stand-auth",
+            idempotency_key,
+            request_payload,
+        )
+        if replay is not None:
+            return replay
         state = stand_with_session(table_id, x_session_id)
+        _idempotent_store(
+            x_session_id,
+            "stand-auth",
+            idempotency_key,
+            request_payload,
+            state,
+        )
         await manager.broadcast_state(table_id, "player_stood")
         return state
     except Exception as exc:
@@ -413,16 +490,38 @@ async def api_authenticated_player_action(
     table_id: str,
     payload: AuthPlayerActionRequest,
     x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     if not x_session_id:
         raise HTTPException(status_code=401, detail="session is required")
     try:
+        request_payload = {
+            "table_id": table_id,
+            "action": payload.action,
+            "expected_action_no": payload.expected_action_no,
+            "amount": payload.amount,
+        }
+        replay = _idempotent_replay(
+            x_session_id,
+            "action-auth",
+            idempotency_key,
+            request_payload,
+        )
+        if replay is not None:
+            return replay
         state = submit_player_action_with_session(
             table_id,
             x_session_id,
             payload.action,
             payload.expected_action_no,
             payload.amount,
+        )
+        _idempotent_store(
+            x_session_id,
+            "action-auth",
+            idempotency_key,
+            request_payload,
+            state,
         )
         await manager.broadcast_state(table_id, "player_action")
         return state
