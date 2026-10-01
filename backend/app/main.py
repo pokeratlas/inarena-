@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import asyncio
 import os
 from typing import Any
 
@@ -665,7 +666,24 @@ async def table_socket(websocket: WebSocket, table_id: str) -> None:
             }
         )
         while True:
-            message = await websocket.receive_json()
+            try:
+                message = await asyncio.wait_for(
+                    websocket.receive_json(),
+                    timeout=1.0,
+                )
+            except asyncio.TimeoutError:
+                try:
+                    resolved = resolve_expired_action(table_id)
+                    await manager.broadcast_state(
+                        table_id,
+                        "action_timeout_resolved",
+                    )
+                    if resolved.get("active_hand") is None:
+                        continue
+                except (ConflictError, NotFoundError):
+                    pass
+                continue
+
             if message.get("type") == "sync":
                 after_seq = int(message.get("after_seq", 0) or 0)
                 events = list_table_events_since(table_id, after_seq, 500)
