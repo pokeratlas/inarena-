@@ -94,27 +94,55 @@ def stand(table_id: str, player_id: str) -> dict:
 def start_hand(table_id: str, button_seat: int | None = None) -> dict:
     with transaction() as conn:
         _require_table(conn, table_id)
+        table = conn.execute(
+            """
+            SELECT small_blind, big_blind, last_button_seat
+            FROM runtime_tables
+            WHERE id = ?
+            """,
+            (table_id,),
+        ).fetchone()
+
         existing = conn.execute(
             "SELECT hand_id FROM active_hands WHERE table_id = ?", (table_id,)
         ).fetchone()
         if existing:
             raise ConflictError("active hand already exists")
 
-        seats = conn.execute(
+        seat_rows = conn.execute(
             """
             SELECT seat_no, player_id, stack
             FROM runtime_seats
-            WHERE table_id = ? AND status = 'seated'
+            WHERE table_id = ? AND status = 'seated' AND stack > 0
             ORDER BY seat_no
             """,
             (table_id,),
         ).fetchall()
+        seats = [dict(row) for row in seat_rows]
         if len(seats) < 2:
-            raise ConflictError("at least two seated players are required")
+            raise ConflictError("at least two funded players are required")
 
         seat_numbers = [row["seat_no"] for row in seats]
-        button = button_seat if button_seat in seat_numbers else seat_numbers[0]
-        action = next((s for s in seat_numbers if s > button), seat_numbers[0])
+        if button_seat in seat_numbers:
+            button = int(button_seat)
+        elif table["last_button_seat"] in seat_numbers:
+            button = _clockwise_first(
+                seats, int(table["last_button_seat"])
+            )["seat_no"]
+        else:
+            button = seat_numbers[0]
+
+        if len(seats) == 2:
+            sb_row = next(row for row in seats if row["seat_no"] == button)
+            bb_row = _clockwise_first(seats, button)
+            preflop_first = sb_row
+        else:
+            sb_row = _clockwise_first(seats, button)
+            bb_row = _clockwise_first(seats, sb_row["seat_no"])
+            preflop_first = _clockwise_first(seats, bb_row["seat_no"])
+
+        small_blind = int(table["small_blind"])
+        big_blind = int(table["big_blind"])
         hand_id = str(uuid.uuid4())
 
         deck = [
@@ -127,16 +155,64 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
         for row in seats:
             private_cards[row["player_id"]] = [deck.pop(), deck.pop()]
 
+        contributions = {row["player_id"]: 0 for row in seats}
+        street_contributions = {row["player_id"]: 0 for row in seats}
+
+        sb_paid = min(small_blind, int(sb_row["stack"]))
+        bb_paid = min(big_blind, int(bb_row["stack"]))
+        for row, paid in ((sb_row, sb_paid), (bb_row, bb_paid)):
+            if paid:
+                conn.execute(
+                    """
+                    UPDATE runtime_seats
+                    SET stack = stack - ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE table_id = ? AND player_id = ?
+                    """,
+                    (paid, table_id, row["player_id"]),
+                )
+                contributions[row["player_id"]] += paid
+                street_contributions[row["player_id"]] += paid
+                row["stack"] -= paid
+
+        refreshed = conn.execute(
+            """
+            SELECT seat_no, player_id, stack
+            FROM runtime_seats
+            WHERE table_id = ? AND status = 'seated'
+            ORDER BY seat_no
+            """,
+            (table_id,),
+        ).fetchall()
+        current_seats = [dict(row) for row in refreshed]
+        actionable = [row for row in current_seats if int(row["stack"]) > 0]
+        if actionable:
+            if preflop_first["player_id"] in {
+                row["player_id"] for row in actionable
+            }:
+                action = preflop_first["seat_no"]
+            else:
+                action = _clockwise_first(
+                    actionable, preflop_first["seat_no"]
+                )["seat_no"]
+        else:
+            action = None
+
+        pot = sb_paid + bb_paid
         state = {
             "hand_id": hand_id,
             "street": "preflop",
-            "pot": 0,
+            "pot": pot,
             "button_seat": button,
+            "small_blind_seat": sb_row["seat_no"],
+            "big_blind_seat": bb_row["seat_no"],
+            "small_blind": small_blind,
+            "big_blind": big_blind,
             "action_seat": action,
             "action_no": 0,
-            "current_bet": 0,
-            "contributions": {},
-            "street_contributions": {},
+            "current_bet": max(sb_paid, bb_paid),
+            "min_raise": big_blind,
+            "contributions": contributions,
+            "street_contributions": street_contributions,
             "acted": [],
             "folded": [],
             "board": [],
@@ -147,14 +223,8 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
                     "player_id": row["player_id"],
                     "stack": row["stack"],
                 }
-                for row in seats
+                for row in current_seats
             ],
-        }
-        state["contributions"] = {
-            row["player_id"]: 0 for row in seats
-        }
-        state["street_contributions"] = {
-            row["player_id"]: 0 for row in seats
         }
 
         conn.execute(
@@ -183,19 +253,26 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
             """
             INSERT INTO active_hands(
                 table_id, hand_id, street, pot, button_seat, action_seat, state_json
-            ) VALUES (?, ?, 'preflop', 0, ?, ?, ?)
+            ) VALUES (?, ?, 'preflop', ?, ?, ?, ?)
             """,
             (
                 table_id,
                 hand_id,
+                pot,
                 button,
                 action,
                 json.dumps(state, separators=(",", ":")),
             ),
         )
         conn.execute(
-            "UPDATE runtime_tables SET status = 'playing', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (table_id,),
+            """
+            UPDATE runtime_tables
+            SET status = 'playing',
+                last_button_seat = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (button, table_id),
         )
     return get_table_state(table_id)
 
