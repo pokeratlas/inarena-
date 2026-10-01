@@ -3,10 +3,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   type AuthSession,
   authenticateTelegram,
+  getCurrentSession,
   getHandActions,
   getHandHistory,
   getMyHandHistory,
   getPlayerTableView,
+  refreshCurrentSession,
   joinAuthenticatedTable,
   listTables,
   submitPlayerAction,
@@ -53,26 +55,55 @@ function useTelegramSession() {
   >("idle");
 
   useEffect(() => {
+    let active = true;
     const webApp = window.Telegram?.WebApp;
-    if (!webApp?.initData) {
-      setStatus("unavailable");
-      return;
-    }
 
-    webApp.ready();
-    webApp.expand();
-    setStatus("authenticating");
+    const persist = (nextSession: AuthSession) => {
+      if (!active) return;
+      setSession(nextSession);
+      setStatus("authenticated");
+      window.localStorage.setItem(
+        "inarena_session_id",
+        nextSession.session_id,
+      );
+    };
 
-    authenticateTelegram(webApp.initData)
-      .then((nextSession) => {
-        setSession(nextSession);
-        setStatus("authenticated");
-        window.localStorage.setItem(
-          "inarena_session_id",
-          nextSession.session_id,
-        );
-      })
-      .catch(() => setStatus("error"));
+    const loginFromTelegram = async () => {
+      if (!webApp?.initData) {
+        if (active) setStatus("unavailable");
+        return;
+      }
+
+      webApp.ready();
+      webApp.expand();
+      if (active) setStatus("authenticating");
+      persist(await authenticateTelegram(webApp.initData));
+    };
+
+    const restore = async () => {
+      const stored = window.localStorage.getItem("inarena_session_id");
+      if (!stored) {
+        await loginFromTelegram();
+        return;
+      }
+
+      try {
+        if (active) setStatus("authenticating");
+        await getCurrentSession(stored);
+        persist(await refreshCurrentSession(stored));
+      } catch {
+        window.localStorage.removeItem("inarena_session_id");
+        await loginFromTelegram();
+      }
+    };
+
+    void restore().catch(() => {
+      if (active) setStatus("error");
+    });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   return { session, status };
@@ -512,7 +543,7 @@ function OnlineLobby({
               <article className="lobby-card" key={table.id}>
                 <strong>{table.name}</strong>
                 <span>
-                  {table.status} · {table.small_blind}/{table.big_blind} · {table.seats.length} игроков
+                  {table.table_mode === "tournament" ? "Tournament" : "Cash"} · {table.small_blind}/{table.big_blind} · {table.seats.length} игроков
                 </span>
                 <div className="lobby-actions">
                   <button
