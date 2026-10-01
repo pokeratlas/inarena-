@@ -120,6 +120,10 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
             "pot": 0,
             "button_seat": button,
             "action_seat": action,
+            "action_no": 0,
+            "current_bet": 0,
+            "contributions": {},
+            "folded": [],
             "players": [
                 {
                     "seat_no": row["seat_no"],
@@ -128,6 +132,9 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
                 }
                 for row in seats
             ],
+        }
+        state["contributions"] = {
+            row["player_id"]: 0 for row in seats
         }
         conn.execute(
             """
@@ -147,6 +154,165 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
             "UPDATE runtime_tables SET status = 'playing', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (table_id,),
         )
+    return get_table_state(table_id)
+
+
+def submit_player_action(
+    table_id: str,
+    player_id: str,
+    action: str,
+    expected_action_no: int,
+    amount: int | None = None,
+) -> dict:
+    allowed = {"fold", "check", "call", "bet", "raise"}
+    if action not in allowed:
+        raise ConflictError("unsupported player action")
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            "SELECT status FROM runtime_tables WHERE id = ?", (table_id,)
+        ).fetchone()
+        if table["status"] != "playing":
+            raise ConflictError("table is not accepting player actions")
+
+        hand = conn.execute(
+            """
+            SELECT hand_id, pot, action_seat, state_json
+            FROM active_hands
+            WHERE table_id = ?
+            """,
+            (table_id,),
+        ).fetchone()
+        if hand is None:
+            raise NotFoundError("no active hand")
+
+        state = json.loads(hand["state_json"])
+        action_no = int(state.get("action_no", 0))
+        if expected_action_no != action_no:
+            raise ConflictError("stale action sequence")
+
+        seat = conn.execute(
+            """
+            SELECT seat_no, stack
+            FROM runtime_seats
+            WHERE table_id = ? AND player_id = ? AND status = 'seated'
+            """,
+            (table_id, player_id),
+        ).fetchone()
+        if seat is None:
+            raise NotFoundError("player is not seated")
+        if seat["seat_no"] != hand["action_seat"]:
+            raise ConflictError("not this player's turn")
+
+        contributions = dict(state.get("contributions", {}))
+        folded = set(state.get("folded", []))
+        current_bet = int(state.get("current_bet", 0))
+        player_contribution = int(contributions.get(player_id, 0))
+        stack = int(seat["stack"])
+        paid = 0
+
+        if action == "fold":
+            folded.add(player_id)
+        elif action == "check":
+            if player_contribution != current_bet:
+                raise ConflictError("cannot check facing a bet")
+        elif action == "call":
+            due = max(0, current_bet - player_contribution)
+            if due == 0:
+                raise ConflictError("nothing to call")
+            paid = min(due, stack)
+        else:
+            if amount is None or amount < 0:
+                raise ConflictError("amount is required")
+            target = int(amount)
+            if target <= current_bet:
+                raise ConflictError("bet or raise must exceed current bet")
+            paid = target - player_contribution
+            if paid <= 0 or paid > stack:
+                raise ConflictError("insufficient stack for action")
+            current_bet = target
+
+        if paid:
+            new_stack = stack - paid
+            contributions[player_id] = player_contribution + paid
+            conn.execute(
+                """
+                UPDATE runtime_seats
+                SET stack = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE table_id = ? AND player_id = ?
+                """,
+                (new_stack, table_id, player_id),
+            )
+        else:
+            contributions.setdefault(player_id, player_contribution)
+
+        seats = conn.execute(
+            """
+            SELECT seat_no, player_id, stack
+            FROM runtime_seats
+            WHERE table_id = ? AND status = 'seated'
+            ORDER BY seat_no
+            """,
+            (table_id,),
+        ).fetchall()
+        eligible = [
+            row for row in seats
+            if row["player_id"] not in folded and int(row["stack"]) > 0
+        ]
+        next_seat = seat["seat_no"]
+        if len(eligible) > 1:
+            later = [row for row in eligible if row["seat_no"] > seat["seat_no"]]
+            next_seat = (later[0] if later else eligible[0])["seat_no"]
+        elif eligible:
+            next_seat = eligible[0]["seat_no"]
+
+        next_action_no = action_no + 1
+        next_pot = int(hand["pot"]) + paid
+        state.update(
+            {
+                "pot": next_pot,
+                "action_seat": next_seat,
+                "action_no": next_action_no,
+                "current_bet": current_bet,
+                "contributions": contributions,
+                "folded": sorted(folded),
+            }
+        )
+
+        conn.execute(
+            """
+            INSERT INTO hand_actions(
+                hand_id, table_id, action_no, player_id, seat_no,
+                action, amount, state_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                hand["hand_id"],
+                table_id,
+                next_action_no,
+                player_id,
+                seat["seat_no"],
+                action,
+                amount,
+                json.dumps(state, separators=(",", ":")),
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE active_hands
+            SET pot = ?, action_seat = ?, state_json = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE table_id = ?
+            """,
+            (
+                next_pot,
+                next_seat,
+                json.dumps(state, separators=(",", ":")),
+                table_id,
+            ),
+        )
+
     return get_table_state(table_id)
 
 
