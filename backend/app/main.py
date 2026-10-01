@@ -20,11 +20,13 @@ from .service import (
     create_session,
     create_table,
     delete_session,
+    get_cash_waitlist_status,
     get_player_balance,
     get_player_table_view,
     get_tournament_registration,
     get_session,
     get_table_state,
+    join_cash_waitlist,
     join_table,
     join_table_with_session,
     latest_table_seq,
@@ -35,6 +37,9 @@ from .service import (
     list_recovery_actions,
     list_table_events_since,
     list_tables,
+    leave_cash_waitlist,
+    claim_seat_reservation,
+    refresh_cash_waitlist,
     set_blind_level,
     set_hand_pot,
     close_table,
@@ -76,6 +81,11 @@ class JoinRequest(BaseModel):
 class AuthJoinRequest(BaseModel):
     seat_no: int = Field(ge=1, le=9)
     stack: int = Field(ge=0)
+
+
+class ReservationClaimRequest(BaseModel):
+    reservation_id: str = Field(min_length=1)
+    stack: int = Field(gt=0)
 
 
 class StandRequest(BaseModel):
@@ -248,6 +258,70 @@ def api_create_table(payload: TableCreate) -> dict[str, Any]:
 def api_get_table(table_id: str) -> dict[str, Any]:
     try:
         return get_table_state(table_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/tables/{table_id}/waitlist")
+def api_waitlist_status(
+    table_id: str,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        return get_cash_waitlist_status(table_id, x_session_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tables/{table_id}/waitlist")
+async def api_waitlist_join(
+    table_id: str,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        result = join_cash_waitlist(table_id, x_session_id)
+        await manager.broadcast_state(table_id, "waitlist_joined")
+        return result
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.delete("/api/v1/tables/{table_id}/waitlist")
+async def api_waitlist_leave(
+    table_id: str,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        result = leave_cash_waitlist(table_id, x_session_id)
+        await manager.broadcast_state(table_id, "waitlist_left")
+        return result
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tables/{table_id}/reservations/claim")
+async def api_claim_reservation(
+    table_id: str,
+    payload: ReservationClaimRequest,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        state = claim_seat_reservation(
+            table_id,
+            x_session_id,
+            payload.reservation_id,
+            payload.stack,
+        )
+        await manager.broadcast_state(table_id, "seat_reservation_claimed")
+        return state
     except Exception as exc:
         raise _http_error(exc) from exc
 
@@ -589,6 +663,20 @@ async def operator_configure_table(
             payload.addon_stack,
         )
         await manager.broadcast_state(table_id, "table_configured")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/operator/tables/{table_id}/waitlist/refresh")
+async def operator_refresh_waitlist(
+    table_id: str,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = refresh_cash_waitlist(table_id)
+        await manager.broadcast_state(table_id, "waitlist_refreshed")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
