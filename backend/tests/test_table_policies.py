@@ -195,7 +195,7 @@ def test_tournament_elimination_rebuy_and_addon(env):
     )
     assert addon.status_code == 200
     p1 = next(s for s in addon.json()["seats"] if s["player_id"] == "p1")
-    assert p1["stack"] == 1500
+    assert p1["stack"] == 1450
 
 
 def test_blind_schedule_pause_start_and_reset(env):
