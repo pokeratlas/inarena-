@@ -265,7 +265,7 @@ def test_schema_migrations_reach_expected_version(client):
     conn = sqlite3.connect(db_path)
     try:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 2
+        assert version == 3
         tables = {
             row[0]
             for row in conn.execute(
@@ -339,3 +339,82 @@ def test_websocket_sync_replays_events_after_sequence(client):
         replay = socket.receive_json()
         assert replay["type"] == "table_replay"
         assert replay["events"][0]["seq"] > base_seq
+
+
+def test_operator_recovery_requires_pause_and_writes_audit(client):
+    test_client, db_path = client
+    table_id = create_started_table(test_client)
+    headers = {"X-Operator-Key": "test-operator-key"}
+
+    blocked = test_client.post(
+        f"/api/v1/operator/tables/{table_id}/abort-hand",
+        headers=headers,
+        json={"reason": "stuck hand"},
+    )
+    assert blocked.status_code == 409
+
+    paused = test_client.post(
+        f"/api/v1/operator/tables/{table_id}/pause",
+        headers=headers,
+    )
+    assert paused.status_code == 200
+    assert paused.json()["status"] == "paused"
+
+    recovered = test_client.post(
+        f"/api/v1/operator/tables/{table_id}/abort-hand",
+        headers=headers,
+        json={"reason": "manual recovery after restart mismatch"},
+    )
+    assert recovered.status_code == 200
+    state = recovered.json()
+    assert state["active_hand"] is None
+    assert state["status"] == "open"
+
+    audit = test_client.get(
+        f"/api/v1/operator/tables/{table_id}/recovery-actions",
+        headers=headers,
+    )
+    assert audit.status_code == 200
+    actions = audit.json()
+    assert len(actions) == 1
+    assert actions[0]["action"] == "abort_hand"
+    assert actions[0]["reason"] == "manual recovery after restart mismatch"
+    assert actions[0]["hand_id"] is not None
+    assert "hand_state" in actions[0]["details"]
+
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT action, reason FROM recovery_actions WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()
+        assert row == ("abort_hand", "manual recovery after restart mismatch")
+    finally:
+        conn.close()
+
+
+def test_operator_recovery_emits_realtime_event(client):
+    test_client, _ = client
+    table_id = create_started_table(test_client)
+    headers = {"X-Operator-Key": "test-operator-key"}
+
+    with test_client.websocket_connect(f"/ws/tables/{table_id}") as socket:
+        snapshot = socket.receive_json()
+        base_seq = snapshot["seq"]
+
+        test_client.post(
+            f"/api/v1/operator/tables/{table_id}/pause",
+            headers=headers,
+        )
+        pause_event = socket.receive_json()
+        assert pause_event["event_type"] == "table_paused"
+
+        test_client.post(
+            f"/api/v1/operator/tables/{table_id}/abort-hand",
+            headers=headers,
+            json={"reason": "operator recovery test"},
+        )
+        recovery_event = socket.receive_json()
+        assert recovery_event["type"] == "table_event"
+        assert recovery_event["event_type"] == "hand_recovered"
+        assert recovery_event["seq"] > base_seq
