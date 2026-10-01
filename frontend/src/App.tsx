@@ -5,12 +5,13 @@ import {
   authenticateTelegram,
   getHandActions,
   getHandHistory,
+  getMyHandHistory,
   getPlayerTableView,
   joinAuthenticatedTable,
   listTables,
   submitPlayerAction,
 } from "./api";
-import type { AppMode, HandActionEntry, HandHistoryEntry, TableState } from "./types";
+import type { AppMode, HandActionEntry, HandHistoryEntry, PlayerHandHistoryEntry, TableState } from "./types";
 import { useTableRealtime } from "./useTableRealtime";
 
 const offlineTabs = ["Главная", "Турниры", "Профиль"];
@@ -246,6 +247,7 @@ function OnlineTable({
   const [holeCards, setHoleCards] = useState<string[]>([]);
   const [history, setHistory] = useState<HandHistoryEntry[]>([]);
   const [historyActions, setHistoryActions] = useState<HandActionEntry[]>([]);
+  const [myHistory, setMyHistory] = useState<PlayerHandHistoryEntry[]>([]);
   const handId = table.active_hand?.hand_id ?? null;
 
   useEffect(() => {
@@ -290,6 +292,26 @@ function OnlineTable({
       active = false;
     };
   }, [table.id, handId]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setMyHistory([]);
+      return;
+    }
+
+    let active = true;
+    getMyHandHistory(sessionId, 5)
+      .then((items) => {
+        if (active) setMyHistory(items);
+      })
+      .catch(() => {
+        if (active) setMyHistory([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [sessionId, handId]);
 
   const board =
     (table.active_hand?.state.board as string[] | undefined) ?? [];
@@ -389,6 +411,21 @@ function OnlineTable({
         ) : (
           <p>Завершённых раздач пока нет.</p>
         )}
+
+        {myHistory[0] ? (
+          <div className="my-hand-history">
+            <h4>Моя последняя раздача</h4>
+            <p>
+              Карты: {myHistory[0].hole_cards.join(" ")}
+              {myHistory[0].board.length > 0
+                ? ` · Board ${myHistory[0].board.join(" ")}`
+                : ""}
+            </p>
+            <p>
+              Payout +{myHistory[0].payout} · Stack {myHistory[0].final_stack}
+            </p>
+          </div>
+        ) : null}
       </section>
     </section>
   );
