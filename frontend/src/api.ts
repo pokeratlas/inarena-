@@ -1,4 +1,4 @@
-import type { HandActionEntry, HandHistoryEntry, PlayerHandHistoryEntry, PlayerTableView, TableEvent, TableState } from "./types";
+import type { HandActionEntry, HandHistoryEntry, OperatorDashboard, PlayerHandHistoryEntry, PlayerTableView, TableEvent, TableState } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
@@ -184,5 +184,89 @@ export async function refreshCurrentSession(
     headers: { "X-Session-ID": sessionId },
   });
   if (!response.ok) throw new Error("Unable to refresh session");
+  return response.json();
+}
+
+
+export async function standAuthenticated(
+  tableId: string,
+  sessionId: string,
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tables/${tableId}/stand-auth`,
+    {
+      method: "POST",
+      headers: { "X-Session-ID": sessionId },
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Unable to leave table");
+  }
+  return response.json();
+}
+
+export async function tournamentRebuy(
+  tableId: string,
+  sessionId: string,
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tables/${tableId}/rebuy`,
+    {
+      method: "POST",
+      headers: { "X-Session-ID": sessionId },
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Rebuy unavailable");
+  }
+  return response.json();
+}
+
+export async function tournamentAddon(
+  tableId: string,
+  sessionId: string,
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tables/${tableId}/addon`,
+    {
+      method: "POST",
+      headers: { "X-Session-ID": sessionId },
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Add-on unavailable");
+  }
+  return response.json();
+}
+
+export async function getOperatorDashboard(
+  operatorKey: string,
+): Promise<OperatorDashboard> {
+  const response = await fetch(`${API_BASE}/api/v1/operator/dashboard`, {
+    headers: { "X-Operator-Key": operatorKey },
+  });
+  if (!response.ok) throw new Error("Operator access denied");
+  return response.json();
+}
+
+export async function operatorBlindScheduleCommand(
+  tableId: string,
+  command: "start" | "pause" | "reset",
+  operatorKey: string,
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/operator/tables/${tableId}/blind-schedule/${command}`,
+    {
+      method: "POST",
+      headers: { "X-Operator-Key": operatorKey },
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Schedule command failed");
+  }
   return response.json();
 }
