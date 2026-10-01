@@ -327,3 +327,62 @@ def test_idempotency_replay_survives_app_reload(tmp_path, monkeypatch):
             assert count == 1
         finally:
             conn.close()
+
+
+def test_in_progress_command_blocks_duplicate_execution(env):
+    client, db_path = env
+    table_id = table(client)
+    sid = session(client, "blocked-player")
+    payload = {"seat_no": 1, "stack": 1000}
+    headers = {
+        "X-Session-ID": sid,
+        "Idempotency-Key": "pending-join",
+    }
+
+    import app.service as service
+    user_id = service.get_session(sid)["user_id"]
+    fingerprint = service._request_fingerprint(
+        {
+            "table_id": table_id,
+            "seat_no": 1,
+            "stack": 1000,
+        }
+    )
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT INTO idempotency_records(
+                user_id, operation, idempotency_key,
+                request_fingerprint, response_json, status_code,
+                command_status
+            ) VALUES (?, 'join-auth', 'pending-join', ?, '{}', 0, 'in_progress')
+            """,
+            (user_id, fingerprint),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    response = client.post(
+        f"/api/v1/tables/{table_id}/join-auth",
+        headers=headers,
+        json=payload,
+    )
+    assert response.status_code == 409
+
+    conn = sqlite3.connect(db_path)
+    try:
+        seat_count = conn.execute(
+            "SELECT COUNT(*) FROM runtime_seats WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()[0]
+        ledger_count = conn.execute(
+            "SELECT COUNT(*) FROM table_ledger WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()[0]
+        assert seat_count == 0
+        assert ledger_count == 0
+    finally:
+        conn.close()
