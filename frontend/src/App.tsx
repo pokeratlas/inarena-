@@ -566,7 +566,7 @@ function OnlineLobby({
                           table.id,
                           session.session_id,
                           firstFreeSeat,
-                          10000,
+                          table.starting_stack,
                         )
                           .then((updated) => {
                             setTables((current) =>
