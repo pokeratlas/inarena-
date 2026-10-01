@@ -211,3 +211,34 @@ def test_reserved_player_can_claim_exact_seat(env):
     ).json()
     assert after["status"] == "seated"
     assert after["reservation"] is None
+
+
+def test_direct_join_cannot_bypass_another_players_reservation(env):
+    client, _ = env
+    table_id = cash_table(client)
+    fill_table(client, table_id)
+
+    waiter = session(client, "reserved-player")
+    intruder = session(client, "intruder")
+
+    client.post(
+        f"/api/v1/tables/{table_id}/waitlist",
+        headers={"X-Session-ID": waiter},
+    )
+    client.post(
+        f"/api/v1/tables/{table_id}/stand",
+        json={"player_id": "p3"},
+    )
+
+    reserved = client.get(
+        f"/api/v1/tables/{table_id}/waitlist",
+        headers={"X-Session-ID": waiter},
+    ).json()
+    assert reserved["reservation"]["seat_no"] == 3
+
+    bypass = client.post(
+        f"/api/v1/tables/{table_id}/join-auth",
+        headers={"X-Session-ID": intruder},
+        json={"seat_no": 3, "stack": 2000},
+    )
+    assert bypass.status_code == 409
