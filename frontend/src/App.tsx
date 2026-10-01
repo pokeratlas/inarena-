@@ -20,8 +20,9 @@ function ModeSwitch({
   onChange: (mode: AppMode) => void;
 }) {
   return (
-    <div aria-label="Режим приложения">
+    <div className="mode-switch" aria-label="Режим приложения">
       <button
+        className="mode-button"
         type="button"
         aria-pressed={mode === "offline"}
         onClick={() => onChange("offline")}
@@ -29,6 +30,7 @@ function ModeSwitch({
         Offline
       </button>
       <button
+        className="mode-button"
         type="button"
         aria-pressed={mode === "online"}
         onClick={() => onChange("online")}
@@ -122,21 +124,21 @@ function PlayerActions({
   };
 
   return (
-    <section aria-label="Действия игрока">
+    <section className="player-actions" aria-label="Действия игрока">
       <p>Ваш ход · действие #{actionNo + 1}</p>
-      <button disabled={pending} type="button" onClick={() => void act("fold")}>
+      <button className="action-button action-danger" disabled={pending} type="button" onClick={() => void act("fold")}>
         Fold
       </button>
       {facingBet ? (
-        <button disabled={pending} type="button" onClick={() => void act("call")}>
+        <button className="action-button" disabled={pending} type="button" onClick={() => void act("call")}>
           Call
         </button>
       ) : (
-        <button disabled={pending} type="button" onClick={() => void act("check")}>
+        <button className="action-button" disabled={pending} type="button" onClick={() => void act("check")}>
           Check
         </button>
       )}
-      <label>
+      <label className="bet-control">
         Ставка
         <input
           min={0}
@@ -146,6 +148,7 @@ function PlayerActions({
         />
       </label>
       <button
+        className="action-button action-primary"
         disabled={pending || amount <= currentBet}
         type="button"
         onClick={() =>
@@ -164,24 +167,27 @@ function OnlineTable({
   playerId,
   connected,
   lastSeq,
+  onBack,
 }: {
   table: TableState;
   playerId: string | null;
   connected: boolean;
   lastSeq: number;
+  onBack: () => void;
 }) {
   return (
-    <section aria-label="Игровой стол">
-      <header>
+    <section className="table-screen" aria-label="Игровой стол">
+      <header className="table-header">
+        <button className="ghost-button" type="button" onClick={onBack}>← Лобби</button>
         <h2>{table.name}</h2>
         <p>
           {connected ? "Live" : "Reconnecting"} · seq {lastSeq}
         </p>
       </header>
 
-      <div aria-label="Места за столом">
+      <div className="poker-table" aria-label="Места за столом">
         {table.seats.map((seat) => (
-          <article key={seat.seat_no}>
+          <article className={seat.player_id === playerId ? "seat-card hero-seat" : "seat-card"} key={seat.seat_no}>
             <strong>
               Seat {seat.seat_no}
               {seat.player_id === playerId ? " · Вы" : ""}
@@ -192,7 +198,7 @@ function OnlineTable({
         ))}
       </div>
 
-      <div>
+      <div className="hand-status">
         <p>Статус: {table.status}</p>
         <p>
           {table.active_hand
@@ -208,13 +214,16 @@ function OnlineTable({
 
 function OnlineLobby({
   playerId,
+  onTableScreenChange,
 }: {
   playerId: string | null;
+  onTableScreenChange: (open: boolean) => void;
 }) {
   const [tables, setTables] = useState<TableState[]>([]);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
-  const realtime = useTableRealtime(selectedTableId);
+  const [tableOpen, setTableOpen] = useState(false);
+  const realtime = useTableRealtime(tableOpen ? selectedTableId : null);
 
   useEffect(() => {
     let active = true;
@@ -237,9 +246,26 @@ function OnlineLobby({
     };
   }, []);
 
+  if (tableOpen && realtime.state) {
+    return (
+      <main className="app-main table-main">
+        <OnlineTable
+          table={realtime.state}
+          playerId={playerId}
+          connected={realtime.connected}
+          lastSeq={realtime.lastSeq}
+          onBack={() => {
+            setTableOpen(false);
+            onTableScreenChange(false);
+          }}
+        />
+      </main>
+    );
+  }
+
   return (
-    <main>
-      <header>
+    <main className="app-main">
+      <header className="app-header">
         <p>INARENA ONLINE</p>
         <h1>Лобби</h1>
       </header>
@@ -247,16 +273,21 @@ function OnlineLobby({
       {loadingError ? <p role="alert">{loadingError}</p> : null}
       {realtime.error ? <p role="status">{realtime.error}</p> : null}
 
-      <section aria-label="Онлайн столы">
+      <section className="lobby-list" aria-label="Онлайн столы">
         {tables.length === 0 ? (
           <p>Активных столов пока нет.</p>
         ) : (
           tables.map((table) => (
             <button
+              className="lobby-card"
               key={table.id}
               type="button"
               aria-pressed={selectedTableId === table.id}
-              onClick={() => setSelectedTableId(table.id)}
+              onClick={() => {
+                setSelectedTableId(table.id);
+                setTableOpen(true);
+                onTableScreenChange(true);
+              }}
             >
               <strong>{table.name}</strong>
               <span>
@@ -267,22 +298,14 @@ function OnlineLobby({
         )}
       </section>
 
-      {realtime.state ? (
-        <OnlineTable
-          table={realtime.state}
-          playerId={playerId}
-          connected={realtime.connected}
-          lastSeq={realtime.lastSeq}
-        />
-      ) : null}
     </main>
   );
 }
 
 function OfflineHome() {
   return (
-    <main>
-      <header>
+    <main className="app-main">
+      <header className="app-header">
         <p>INARENA OFFLINE</p>
         <h1>Главная</h1>
       </header>
@@ -296,11 +319,22 @@ function OfflineHome() {
 export default function App() {
   const [mode, setMode] = useState<AppMode>("offline");
   const telegram = useTelegramSession();
+  const [tableScreenOpen, setTableScreenOpen] = useState(false);
   const tabs = mode === "online" ? onlineTabs : offlineTabs;
 
   return (
-    <div>
-      <ModeSwitch mode={mode} onChange={setMode} />
+    <div className="app-shell">
+      <div className="brand-row">
+        <span className="brand-mark">INARENA</span>
+        <span className="status-dot" aria-hidden="true" />
+      </div>
+      <ModeSwitch
+        mode={mode}
+        onChange={(nextMode) => {
+          setMode(nextMode);
+          setTableScreenOpen(false);
+        }}
+      />
       {mode === "online" ? (
         <>
           {telegram.status === "error" ? (
@@ -311,18 +345,23 @@ export default function App() {
               Откройте приложение внутри Telegram для действий от имени игрока.
             </p>
           ) : null}
-          <OnlineLobby playerId={telegram.session?.user_id ?? null} />
+          <OnlineLobby
+            playerId={telegram.session?.user_id ?? null}
+            onTableScreenChange={setTableScreenOpen}
+          />
         </>
       ) : (
         <OfflineHome />
       )}
-      <nav aria-label="Основная навигация">
-        {tabs.map((tab) => (
-          <button type="button" key={tab}>
-            {tab}
-          </button>
-        ))}
-      </nav>
+      {!tableScreenOpen ? (
+        <nav className="bottom-nav" aria-label="Основная навигация">
+          {tabs.map((tab) => (
+            <button className="nav-item" type="button" key={tab}>
+              {tab}
+            </button>
+          ))}
+        </nav>
+      ) : null}
     </div>
   );
 }
