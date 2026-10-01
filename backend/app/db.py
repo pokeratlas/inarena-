@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def _database_path() -> str:
@@ -154,11 +154,36 @@ def _migration_4(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_5(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS hand_secrets (
+            hand_id TEXT PRIMARY KEY,
+            table_id TEXT NOT NULL REFERENCES runtime_tables(id) ON DELETE CASCADE,
+            deck_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS hand_private_cards (
+            hand_id TEXT NOT NULL,
+            table_id TEXT NOT NULL REFERENCES runtime_tables(id) ON DELETE CASCADE,
+            player_id TEXT NOT NULL,
+            cards_json TEXT NOT NULL,
+            PRIMARY KEY (hand_id, player_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_hand_private_cards_table_player
+        ON hand_private_cards(table_id, player_id);
+        """
+    )
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
     3: _migration_3,
     4: _migration_4,
+    5: _migration_5,
 }
 
 
