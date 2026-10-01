@@ -1,6 +1,25 @@
-import type { HandActionEntry, HandHistoryEntry, OperatorAuditEntry, OperatorDashboard, PlayerBalance, PlayerHandHistoryEntry, PlayerTableView, TableEvent, TableState, TournamentRegistration } from "./types";
+import type { CashWaitlistStatus, HandActionEntry, HandHistoryEntry, OperatorAuditEntry, OperatorDashboard, PlayerBalance, PlayerHandHistoryEntry, PlayerTableView, TableEvent, TableState, TournamentRegistration } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+
+function createIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function mutationHeaders(
+  sessionId: string,
+  idempotencyKey: string,
+  json = false,
+): Record<string, string> {
+  return {
+    ...(json ? { "Content-Type": "application/json" } : {}),
+    "X-Session-ID": sessionId,
+    "Idempotency-Key": idempotencyKey,
+  };
+}
 
 export async function listTables(): Promise<TableState[]> {
   const response = await fetch(`${API_BASE}/api/v1/tables`);
@@ -76,15 +95,13 @@ export async function joinAuthenticatedTable(
   sessionId: string,
   seatNo: number,
   stack: number,
+  idempotencyKey = createIdempotencyKey(),
 ): Promise<TableState> {
   const response = await fetch(
     `${API_BASE}/api/v1/tables/${tableId}/join-auth`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Session-ID": sessionId,
-      },
+      headers: mutationHeaders(sessionId, idempotencyKey, true),
       body: JSON.stringify({ seat_no: seatNo, stack }),
     },
   );
@@ -103,15 +120,13 @@ export async function submitPlayerAction(
     expected_action_no: number;
     amount?: number;
   },
+  idempotencyKey = createIdempotencyKey(),
 ): Promise<TableState> {
   const response = await fetch(
     `${API_BASE}/api/v1/tables/${tableId}/action-auth`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Session-ID": sessionId,
-      },
+      headers: mutationHeaders(sessionId, idempotencyKey, true),
       body: JSON.stringify(payload),
     },
   );
@@ -191,12 +206,13 @@ export async function refreshCurrentSession(
 export async function standAuthenticated(
   tableId: string,
   sessionId: string,
+  idempotencyKey = createIdempotencyKey(),
 ): Promise<TableState> {
   const response = await fetch(
     `${API_BASE}/api/v1/tables/${tableId}/stand-auth`,
     {
       method: "POST",
-      headers: { "X-Session-ID": sessionId },
+      headers: mutationHeaders(sessionId, idempotencyKey),
     },
   );
   if (!response.ok) {
@@ -209,12 +225,13 @@ export async function standAuthenticated(
 export async function tournamentRebuy(
   tableId: string,
   sessionId: string,
+  idempotencyKey = createIdempotencyKey(),
 ): Promise<TableState> {
   const response = await fetch(
     `${API_BASE}/api/v1/tables/${tableId}/rebuy`,
     {
       method: "POST",
-      headers: { "X-Session-ID": sessionId },
+      headers: mutationHeaders(sessionId, idempotencyKey),
     },
   );
   if (!response.ok) {
@@ -227,12 +244,13 @@ export async function tournamentRebuy(
 export async function tournamentAddon(
   tableId: string,
   sessionId: string,
+  idempotencyKey = createIdempotencyKey(),
 ): Promise<TableState> {
   const response = await fetch(
     `${API_BASE}/api/v1/tables/${tableId}/addon`,
     {
       method: "POST",
-      headers: { "X-Session-ID": sessionId },
+      headers: mutationHeaders(sessionId, idempotencyKey),
     },
   );
   if (!response.ok) {
@@ -378,12 +396,13 @@ export async function getTournamentRegistration(
 export async function registerTournament(
   tableId: string,
   sessionId: string,
+  idempotencyKey = createIdempotencyKey(),
 ): Promise<TournamentRegistration> {
   const response = await fetch(
     `${API_BASE}/api/v1/tournaments/${tableId}/register`,
     {
       method: "POST",
-      headers: { "X-Session-ID": sessionId },
+      headers: mutationHeaders(sessionId, idempotencyKey),
     },
   );
   if (!response.ok) {
@@ -396,12 +415,13 @@ export async function registerTournament(
 export async function unregisterTournament(
   tableId: string,
   sessionId: string,
+  idempotencyKey = createIdempotencyKey(),
 ): Promise<TournamentRegistration> {
   const response = await fetch(
     `${API_BASE}/api/v1/tournaments/${tableId}/register`,
     {
       method: "DELETE",
-      headers: { "X-Session-ID": sessionId },
+      headers: mutationHeaders(sessionId, idempotencyKey),
     },
   );
   if (!response.ok) {
@@ -426,6 +446,82 @@ export async function operatorTournamentCommand(
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(body?.detail ?? "Tournament command failed");
+  }
+  return response.json();
+}
+
+
+export async function getCashWaitlistStatus(
+  tableId: string,
+  sessionId: string,
+): Promise<CashWaitlistStatus> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tables/${tableId}/waitlist`,
+    { headers: { "X-Session-ID": sessionId } },
+  );
+  if (!response.ok) throw new Error("Unable to load cash waitlist status");
+  return response.json();
+}
+
+export async function joinCashWaitlist(
+  tableId: string,
+  sessionId: string,
+  idempotencyKey = createIdempotencyKey(),
+): Promise<CashWaitlistStatus> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tables/${tableId}/waitlist`,
+    {
+      method: "POST",
+      headers: mutationHeaders(sessionId, idempotencyKey),
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Unable to join waitlist");
+  }
+  return response.json();
+}
+
+export async function leaveCashWaitlist(
+  tableId: string,
+  sessionId: string,
+  idempotencyKey = createIdempotencyKey(),
+): Promise<CashWaitlistStatus> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tables/${tableId}/waitlist`,
+    {
+      method: "DELETE",
+      headers: mutationHeaders(sessionId, idempotencyKey),
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Unable to leave waitlist");
+  }
+  return response.json();
+}
+
+export async function claimSeatReservation(
+  tableId: string,
+  sessionId: string,
+  reservationId: string,
+  stack: number,
+  idempotencyKey = createIdempotencyKey(),
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tables/${tableId}/reservations/claim`,
+    {
+      method: "POST",
+      headers: mutationHeaders(sessionId, idempotencyKey, true),
+      body: JSON.stringify({
+        reservation_id: reservationId,
+        stack,
+      }),
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Unable to claim reserved seat");
   }
   return response.json();
 }
