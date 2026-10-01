@@ -97,9 +97,19 @@ def test_private_cards_are_not_exposed_in_public_state(client):
 def test_check_rounds_progress_board_to_showdown(client):
     table_id, _ = create_two_player_hand(client)
 
-    state = act(client, table_id, "p2", 0)
+    response = client.post(
+        f"/api/v1/tables/{table_id}/action",
+        json={
+            "player_id": "p1",
+            "action": "call",
+            "expected_action_no": 0,
+        },
+    )
+    assert response.status_code == 200
+    state = response.json()
     assert state["active_hand"]["street"] == "preflop"
-    state = act(client, table_id, "p1", 1)
+
+    state = act(client, table_id, "p2", 1)
     assert state["active_hand"]["street"] == "flop"
     assert len(state["active_hand"]["state"]["board"]) == 3
 
