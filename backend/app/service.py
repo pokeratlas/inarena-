@@ -3374,7 +3374,7 @@ def dispatch_table_outbox(table_id: str, limit: int = 100) -> list[dict]:
                 INSERT INTO realtime_events(
                     table_id, event_type, payload_json, outbox_id
                 ) VALUES (?, ?, ?, ?)
-                ON CONFLICT(outbox_id) DO NOTHING
+                ON CONFLICT DO NOTHING
                 """,
                 (
                     row["table_id"],
