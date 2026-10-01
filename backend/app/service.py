@@ -463,6 +463,23 @@ def submit_player_action(
     return get_table_state(table_id)
 
 
+def submit_player_action_with_session(
+    table_id: str,
+    session_id: str,
+    action: str,
+    expected_action_no: int,
+    amount: int | None = None,
+) -> dict:
+    session = get_session(session_id)
+    return submit_player_action(
+        table_id,
+        session["user_id"],
+        action,
+        expected_action_no,
+        amount,
+    )
+
+
 def set_hand_pot(table_id: str, pot: int) -> dict:
     if pot < 0:
         raise ConflictError("pot must be non-negative")
