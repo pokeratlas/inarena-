@@ -15,27 +15,30 @@ The project is cloud-first and does not depend on a specific Windows PC.
 ## Verified backend
 Implemented and verified in GitHub Actions:
 - SQLite runtime tables, seats and active hands
-- schema migrations through v5
-- persisted hand results, auth sessions, action log and recovery audit
+- schema migrations through v6
+- persisted hand results, auth sessions, hand actions and recovery audit
 - secure private-card storage separated from public realtime state
 - persisted shuffled deck per active hand
-- two private hole cards dealt server-side to every player
-- public board progression: preflop → flop → turn → river
-- betting-round completion detection
-- all-in runout to a complete board when no further betting is possible
-- showdown_pending state
+- server-side hole cards and public board
+- preflop → flop → turn → river progression
+- small blind / big blind posting
+- heads-up blind rules
+- dealer button rotation between completed hands
+- correct preflop and postflop action order
+- minimum raise enforcement
+- legal short all-in handling
+- contribution ledger
+- main-pot / side-pot calculation by contribution tiers
+- tie splitting
+- automatic uncontested-pot settlement
 - NL Hold'em best-5-of-7 evaluator
-- tie detection and deterministic pot split
-- protected showdown settlement endpoint
-- atomic stack/pot settlement
+- showdown settlement
+- player-visible hand history and action log
 - monotonic realtime sequence log and reconnect replay
 - stale-action protection through expected_action_no
-- server-side turn validation
 - Telegram Mini App initData verification
 - persistent authenticated sessions
-- authenticated seat/join flow using X-Session-ID
-- authenticated private table view; only the current player receives their hole cards
-- authenticated player-action endpoint bound to session identity
+- authenticated seating, private view and player actions
 - protected operator pause/resume/recovery controls
 
 ## Verified frontend
@@ -43,30 +46,32 @@ Implemented and verified in GitHub Actions:
 - Concept 2 mobile shell
 - OFFLINE / ONLINE architecture
 - live ONLINE lobby
-- authenticated “Сесть за стол” flow
+- authenticated seating
 - fullscreen live table
-- public board cards
-- private hole cards loaded through authenticated player view
+- public board and private hole cards
 - Fold / Check / Call / Bet / Raise
-- 1/2 Pot / 3/4 Pot / Pot / All-in sizing controls
+- 1/2 Pot / 3/4 Pot / Pot / All-in sizing
+- D / SB / BB seat badges
+- current blind structure and minimum raise display
+- last-hand result
+- player-visible action log
 - sequence-aware WebSocket reconnect/replay
 - Telegram Mini App identity bridge
-- frontend dependency override pins baseline-browser-mapping 2.11.26 for reproducible CI
+- reproducible frontend dependency pin
 
 ## CI
-- private cards / street progression / auth seating: PASS
-- action sequencing / chip movement: PASS
-- showdown evaluator / settlement: PASS
-- Telegram auth: PASS
-- persistence / reconnect / operator recovery: PASS
-- frontend production build: PASS
+Latest backend CI: PASS.
+Latest frontend CI: PASS.
+Dedicated NLH rules regression tests: PASS.
+Side-pot, min-raise, button rotation, uncontested settlement and hand-history tests: PASS.
 
 ## Current external blocker
 The connected Vercel integration currently returns no accessible Vercel team/account, so a public Vercel preview cannot be published from this session yet.
 
 ## Next
-1. Add blinds / dealer-button rotation and correct preflop/postflop action order.
-2. Add betting minimum-raise rules and all-in side-pot support.
-3. Add automatic uncontested-pot settlement.
-4. Add hand history and player-visible action log.
-5. Polish the live table visual against the approved Concept 2 reference once preview access is available.
+1. Harden production API by disabling unauthenticated legacy join/action routes outside test mode.
+2. Add blind-level configuration/operator controls.
+3. Add automatic showdown trigger when no player decisions remain.
+4. Add reconnect-aware pending-action UX and action timer.
+5. Add richer hand-history details and per-player history view.
+6. Publish cloud preview when Vercel access becomes available.
