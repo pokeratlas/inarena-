@@ -2599,13 +2599,44 @@ def operator_abort_hand(table_id: str, reason: str) -> dict:
             raise ConflictError("table must be paused before recovery")
 
         hand = conn.execute(
-            "SELECT hand_id, state_json FROM active_hands WHERE table_id = ?",
+            "SELECT hand_id, pot, state_json FROM active_hands WHERE table_id = ?",
             (table_id,),
         ).fetchone()
         if hand is None:
             raise NotFoundError("no active hand")
 
         hand_state = json.loads(hand["state_json"])
+        contributions = {
+            player_id: int(amount)
+            for player_id, amount in dict(
+                hand_state.get("contributions", {})
+            ).items()
+            if int(amount) > 0
+        }
+        refunds: dict[str, int] = {}
+
+        for player_id, amount in contributions.items():
+            seat = conn.execute(
+                """
+                SELECT stack
+                FROM runtime_seats
+                WHERE table_id = ? AND player_id = ?
+                """,
+                (table_id, player_id),
+            ).fetchone()
+            if seat is None:
+                continue
+            conn.execute(
+                """
+                UPDATE runtime_seats
+                SET stack = stack + ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE table_id = ? AND player_id = ?
+                """,
+                (amount, table_id, player_id),
+            )
+            refunds[player_id] = amount
+
         conn.execute(
             """
             INSERT INTO recovery_actions(
@@ -2616,10 +2647,30 @@ def operator_abort_hand(table_id: str, reason: str) -> dict:
                 table_id,
                 hand["hand_id"],
                 reason,
-                json.dumps({"hand_state": hand_state}, separators=(",", ":")),
+                json.dumps(
+                    {
+                        "hand_state": hand_state,
+                        "pot": int(hand["pot"]),
+                        "refunds": refunds,
+                        "refunded_total": sum(refunds.values()),
+                    },
+                    separators=(",", ":"),
+                ),
             ),
         )
-        conn.execute("DELETE FROM active_hands WHERE table_id = ?", (table_id,))
+
+        conn.execute(
+            "DELETE FROM hand_private_cards WHERE hand_id = ?",
+            (hand["hand_id"],),
+        )
+        conn.execute(
+            "DELETE FROM hand_secrets WHERE hand_id = ?",
+            (hand["hand_id"],),
+        )
+        conn.execute(
+            "DELETE FROM active_hands WHERE table_id = ?",
+            (table_id,),
+        )
         conn.execute(
             """
             UPDATE runtime_tables
@@ -2628,6 +2679,8 @@ def operator_abort_hand(table_id: str, reason: str) -> dict:
             """,
             (table_id,),
         )
+        _enqueue_realtime_outbox(conn, table_id, "hand_recovered")
+
     return get_table_state(table_id)
 
 
