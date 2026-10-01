@@ -2,63 +2,71 @@
 
 ## Source of truth
 GitHub repository `pokeratlas/inarena-` is the primary codebase.
-The project is cloud-first and no longer depends on a specific Windows PC.
+The project is cloud-first and does not depend on a specific Windows PC.
 
 ## Confirmed product direction
 - Master brand: INARENA
 - Direction: professional sport × lifestyle
 - ONLINE UI: approved Concept 2
-- OFFLINE / ONLINE switching changes both the main content and bottom navigation.
+- OFFLINE / ONLINE switching changes both main content and bottom navigation.
 - ONLINE bottom navigation: Лобби | Игра | Профиль.
-- Poker table uses a dedicated fullscreen gameplay screen and hides the bottom navigation.
+- Gameplay uses a dedicated fullscreen table screen.
 
 ## Verified backend
 Implemented and verified in GitHub Actions:
 - SQLite runtime tables, seats and active hands
-- persisted hand results and auth sessions
-- versioned schema migrations through schema v4
-- persisted realtime event log with monotonic sequence IDs
-- reconnect replay from `after_seq`
-- WebSocket snapshot/replay/event protocol
-- atomic hand completion with payout validation and rollback
-- protected operator API
-- pause / resume
-- audited operator hand abort/recovery
-- ordered server-side player actions
-- expected-action sequence guard against stale/repeated taps
+- schema migrations through v5
+- persisted hand results, auth sessions, action log and recovery audit
+- secure private-card storage separated from public realtime state
+- persisted shuffled deck per active hand
+- two private hole cards dealt server-side to every player
+- public board progression: preflop → flop → turn → river
+- betting-round completion detection
+- all-in runout to a complete board when no further betting is possible
+- showdown_pending state
+- NL Hold'em best-5-of-7 evaluator
+- tie detection and deterministic pot split
+- protected showdown settlement endpoint
+- atomic stack/pot settlement
+- monotonic realtime sequence log and reconnect replay
+- stale-action protection through expected_action_no
 - server-side turn validation
-- atomic bet/call chip movement and pot updates
-- hand action audit table
-- verified Telegram Mini App initData authentication
-- persisted Telegram session after successful validation
+- Telegram Mini App initData verification
+- persistent authenticated sessions
+- authenticated seat/join flow using X-Session-ID
+- authenticated private table view; only the current player receives their hole cards
+- authenticated player-action endpoint bound to session identity
+- protected operator pause/resume/recovery controls
 
 ## Verified frontend
 - React + TypeScript + Vite
-- approved OFFLINE / ONLINE mode architecture
-- ONLINE lobby connected to live API
-- fullscreen ONLINE table screen
-- sequence-aware WebSocket reconnect
-- Telegram Mini App bridge and authenticated player identity
-- player actions only shown when it is the authenticated player's turn
+- Concept 2 mobile shell
+- OFFLINE / ONLINE architecture
+- live ONLINE lobby
+- authenticated “Сесть за стол” flow
+- fullscreen live table
+- public board cards
+- private hole cards loaded through authenticated player view
 - Fold / Check / Call / Bet / Raise
-- approved 1/2 Pot / 3/4 Pot / Pot / All-in sizing controls
-- Concept 2 cobalt-blue / navy glass visual foundation
-- 390–430px mobile-first shell
-- safe-area aware layout
-- fullscreen table hides bottom navigation
+- 1/2 Pot / 3/4 Pot / Pot / All-in sizing controls
+- sequence-aware WebSocket reconnect/replay
+- Telegram Mini App identity bridge
+- frontend dependency override pins baseline-browser-mapping 2.11.26 for reproducible CI
 
 ## CI
-- backend action sequencing: PASS
-- Telegram authentication: PASS
-- backend persistence/reconnect/operator/recovery: PASS
+- private cards / street progression / auth seating: PASS
+- action sequencing / chip movement: PASS
+- showdown evaluator / settlement: PASS
+- Telegram auth: PASS
+- persistence / reconnect / operator recovery: PASS
 - frontend production build: PASS
-- Concept 2 shell and sizing controls: PASS
 
-## Current blocker
-Vercel connector currently returns no accessible Vercel team/account, so a Vercel cloud preview cannot be published from this session yet.
+## Current external blocker
+The connected Vercel integration currently returns no accessible Vercel team/account, so a public Vercel preview cannot be published from this session yet.
 
 ## Next
-1. Add dealt cards / board state and street progression.
-2. Add round-completion logic and showdown settlement handoff.
-3. Add Telegram-authenticated join/seat flow.
-4. Publish cloud preview when Vercel account/team access becomes available.
+1. Add blinds / dealer-button rotation and correct preflop/postflop action order.
+2. Add betting minimum-raise rules and all-in side-pot support.
+3. Add automatic uncontested-pot settlement.
+4. Add hand history and player-visible action log.
+5. Polish the live table visual against the approved Concept 2 reference once preview access is available.
