@@ -258,6 +258,75 @@ def set_operator_status(table_id: str, status: str) -> dict:
     return get_table_state(table_id)
 
 
+def append_table_event(table_id: str, event_type: str, payload: dict) -> dict:
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        cur = conn.execute(
+            """
+            INSERT INTO realtime_events(table_id, event_type, payload_json)
+            VALUES (?, ?, ?)
+            """,
+            (table_id, event_type, json.dumps(payload, separators=(",", ":"))),
+        )
+        seq = int(cur.lastrowid)
+        row = conn.execute(
+            """
+            SELECT seq, table_id, event_type, payload_json, created_at
+            FROM realtime_events
+            WHERE seq = ?
+            """,
+            (seq,),
+        ).fetchone()
+    return {
+        "seq": row["seq"],
+        "table_id": row["table_id"],
+        "event_type": row["event_type"],
+        "payload": json.loads(row["payload_json"]),
+        "created_at": row["created_at"],
+    }
+
+
+def list_table_events_since(table_id: str, after_seq: int, limit: int = 100) -> list[dict]:
+    conn = connect()
+    try:
+        _require_table(conn, table_id)
+        rows = conn.execute(
+            """
+            SELECT seq, table_id, event_type, payload_json, created_at
+            FROM realtime_events
+            WHERE table_id = ? AND seq > ?
+            ORDER BY seq ASC
+            LIMIT ?
+            """,
+            (table_id, after_seq, max(1, min(limit, 500))),
+        ).fetchall()
+        return [
+            {
+                "seq": row["seq"],
+                "table_id": row["table_id"],
+                "event_type": row["event_type"],
+                "payload": json.loads(row["payload_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
+def latest_table_seq(table_id: str) -> int:
+    conn = connect()
+    try:
+        _require_table(conn, table_id)
+        row = conn.execute(
+            "SELECT COALESCE(MAX(seq), 0) AS seq FROM realtime_events WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()
+        return int(row["seq"])
+    finally:
+        conn.close()
+
+
 def create_session(
     user_id: str,
     provider: str,
