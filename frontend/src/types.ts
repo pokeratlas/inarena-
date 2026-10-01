@@ -36,3 +36,10 @@ export interface TableEvent {
   payload: TableState;
   created_at: string;
 }
+
+
+export interface PlayerTableView {
+  table: TableState;
+  player_id: string;
+  hole_cards: string[];
+}
