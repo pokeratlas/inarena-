@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 def _database_path() -> str:
@@ -224,6 +224,59 @@ def _migration_7(conn: sqlite3.Connection) -> None:
         )
 
 
+def _migration_8(conn: sqlite3.Connection) -> None:
+    table_cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(runtime_tables)").fetchall()
+    }
+    additions = {
+        "cash_buyin_min": "INTEGER NOT NULL DEFAULT 1000",
+        "cash_buyin_max": "INTEGER NOT NULL DEFAULT 100000",
+        "rebuy_enabled": "INTEGER NOT NULL DEFAULT 0",
+        "rebuy_stack": "INTEGER NOT NULL DEFAULT 0",
+        "rebuy_max_per_player": "INTEGER NOT NULL DEFAULT 0",
+        "addon_enabled": "INTEGER NOT NULL DEFAULT 0",
+        "addon_stack": "INTEGER NOT NULL DEFAULT 0",
+        "blind_schedule_status": "TEXT NOT NULL DEFAULT 'running'",
+        "blind_schedule_paused_at": "INTEGER",
+    }
+    for name, ddl in additions.items():
+        if name not in table_cols:
+            conn.execute(
+                f"ALTER TABLE runtime_tables ADD COLUMN {name} {ddl}"
+            )
+
+    seat_cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(runtime_seats)").fetchall()
+    }
+    if "rebuy_count" not in seat_cols:
+        conn.execute(
+            "ALTER TABLE runtime_seats ADD COLUMN rebuy_count INTEGER NOT NULL DEFAULT 0"
+        )
+    if "eliminated_at" not in seat_cols:
+        conn.execute(
+            "ALTER TABLE runtime_seats ADD COLUMN eliminated_at TEXT"
+        )
+
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS table_ledger (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            table_id TEXT NOT NULL REFERENCES runtime_tables(id) ON DELETE CASCADE,
+            player_id TEXT NOT NULL,
+            entry_type TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            details_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_table_ledger_table_player
+        ON table_ledger(table_id, player_id, id);
+        """
+    )
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
@@ -232,6 +285,7 @@ MIGRATIONS = {
     5: _migration_5,
     6: _migration_6,
     7: _migration_7,
+    8: _migration_8,
 }
 
 
