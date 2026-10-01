@@ -236,6 +236,344 @@ def configure_table(
     return get_table_state(table_id)
 
 
+def configure_tournament_lifecycle(
+    table_id: str,
+    scheduled_start_at: int | None,
+    registration_open_at: int | None,
+    registration_close_at: int | None,
+    late_registration_close_at: int | None,
+) -> dict:
+    values = [
+        value
+        for value in (
+            registration_open_at,
+            registration_close_at,
+            scheduled_start_at,
+            late_registration_close_at,
+        )
+        if value is not None
+    ]
+    if any(int(value) < 0 for value in values):
+        raise ConflictError("tournament timestamps must be non-negative")
+
+    if (
+        registration_open_at is not None
+        and registration_close_at is not None
+        and registration_open_at > registration_close_at
+    ):
+        raise ConflictError("registration opens after it closes")
+    if (
+        registration_close_at is not None
+        and scheduled_start_at is not None
+        and registration_close_at > scheduled_start_at
+    ):
+        raise ConflictError("registration close must not be after scheduled start")
+    if (
+        scheduled_start_at is not None
+        and late_registration_close_at is not None
+        and late_registration_close_at < scheduled_start_at
+    ):
+        raise ConflictError("late registration cutoff precedes tournament start")
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            "SELECT table_mode FROM runtime_tables WHERE id = ?",
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "tournament":
+            raise ConflictError("tournament lifecycle requires tournament mode")
+        active = conn.execute(
+            "SELECT 1 FROM active_hands WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()
+        if active:
+            raise ConflictError("cannot configure lifecycle during an active hand")
+
+        conn.execute(
+            """
+            UPDATE runtime_tables
+            SET tournament_status = 'scheduled',
+                scheduled_start_at = ?,
+                registration_open_at = ?,
+                registration_close_at = ?,
+                late_registration_close_at = ?,
+                winner_player_id = NULL,
+                finished_at = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                scheduled_start_at,
+                registration_open_at,
+                registration_close_at,
+                late_registration_close_at,
+                table_id,
+            ),
+        )
+        _audit_operator(
+            conn,
+            "tournament_lifecycle_configured",
+            table_id,
+            {
+                "scheduled_start_at": scheduled_start_at,
+                "registration_open_at": registration_open_at,
+                "registration_close_at": registration_close_at,
+                "late_registration_close_at": late_registration_close_at,
+            },
+        )
+    return get_table_state(table_id)
+
+
+def set_tournament_status(table_id: str, command: str) -> dict:
+    if command not in {"open-registration", "start", "cancel"}:
+        raise ConflictError("unsupported tournament command")
+
+    now = int(time.time())
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            """
+            SELECT table_mode, tournament_status, registration_open_at,
+                   scheduled_start_at
+            FROM runtime_tables
+            WHERE id = ?
+            """,
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "tournament":
+            raise ConflictError("tournament command requires tournament mode")
+
+        current = table["tournament_status"]
+        if command == "open-registration":
+            if current != "scheduled":
+                raise ConflictError("registration can open only from scheduled")
+            if (
+                table["registration_open_at"] is not None
+                and now < int(table["registration_open_at"])
+            ):
+                raise ConflictError("registration opening time has not been reached")
+            next_status = "registering"
+            conn.execute(
+                """
+                UPDATE runtime_tables
+                SET tournament_status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (next_status, table_id),
+            )
+        elif command == "start":
+            if current != "registering":
+                raise ConflictError("tournament can start only from registering")
+            registered = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM tournament_registrations
+                    WHERE table_id = ? AND status = 'registered'
+                    """,
+                    (table_id,),
+                ).fetchone()["count"]
+            )
+            seated = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM runtime_seats
+                    WHERE table_id = ? AND status = 'seated' AND stack > 0
+                    """,
+                    (table_id,),
+                ).fetchone()["count"]
+            )
+            if max(registered, seated) < 2:
+                raise ConflictError("at least two registered players are required")
+            conn.execute(
+                """
+                UPDATE runtime_tables
+                SET tournament_status = 'running',
+                    blind_schedule_status = 'running',
+                    blind_level_started_at = COALESCE(blind_level_started_at, ?),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (now, table_id),
+            )
+        else:
+            if current not in {"scheduled", "registering"}:
+                raise ConflictError("tournament cannot be cancelled from current status")
+            conn.execute(
+                """
+                UPDATE runtime_tables
+                SET tournament_status = 'cancelled',
+                    status = 'closed',
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (table_id,),
+            )
+
+        _audit_operator(conn, f"tournament_{command}", table_id)
+    return get_table_state(table_id)
+
+
+def register_tournament(table_id: str, session_id: str) -> dict:
+    session = get_session(session_id)
+    user_id = session["user_id"]
+    now = int(time.time())
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            """
+            SELECT table_mode, tournament_status, registration_open_at,
+                   registration_close_at, late_registration_close_at
+            FROM runtime_tables
+            WHERE id = ?
+            """,
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "tournament":
+            raise ConflictError("registration requires tournament mode")
+
+        status = table["tournament_status"]
+        if status == "registering":
+            if (
+                table["registration_open_at"] is not None
+                and now < int(table["registration_open_at"])
+            ):
+                raise ConflictError("registration is not open yet")
+            if (
+                table["registration_close_at"] is not None
+                and now > int(table["registration_close_at"])
+            ):
+                raise ConflictError("regular registration is closed")
+        elif status == "running":
+            cutoff = table["late_registration_close_at"]
+            if cutoff is None or now > int(cutoff):
+                raise ConflictError("late registration is closed")
+        else:
+            raise ConflictError("tournament is not accepting registrations")
+
+        existing = conn.execute(
+            """
+            SELECT status, registered_at, withdrawn_at
+            FROM tournament_registrations
+            WHERE table_id = ? AND user_id = ?
+            """,
+            (table_id, user_id),
+        ).fetchone()
+        if existing and existing["status"] == "registered":
+            return {
+                "table_id": table_id,
+                "user_id": user_id,
+                "status": existing["status"],
+                "registered_at": existing["registered_at"],
+                "withdrawn_at": existing["withdrawn_at"],
+            }
+
+        conn.execute(
+            """
+            INSERT INTO tournament_registrations(
+                table_id, user_id, status, registered_at, withdrawn_at
+            ) VALUES (?, ?, 'registered', CURRENT_TIMESTAMP, NULL)
+            ON CONFLICT(table_id, user_id) DO UPDATE SET
+                status = 'registered',
+                registered_at = CURRENT_TIMESTAMP,
+                withdrawn_at = NULL
+            """,
+            (table_id, user_id),
+        )
+        row = conn.execute(
+            """
+            SELECT status, registered_at, withdrawn_at
+            FROM tournament_registrations
+            WHERE table_id = ? AND user_id = ?
+            """,
+            (table_id, user_id),
+        ).fetchone()
+
+    return {
+        "table_id": table_id,
+        "user_id": user_id,
+        "status": row["status"],
+        "registered_at": row["registered_at"],
+        "withdrawn_at": row["withdrawn_at"],
+    }
+
+
+def unregister_tournament(table_id: str, session_id: str) -> dict:
+    session = get_session(session_id)
+    user_id = session["user_id"]
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            "SELECT table_mode, tournament_status FROM runtime_tables WHERE id = ?",
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "tournament":
+            raise ConflictError("registration requires tournament mode")
+        if table["tournament_status"] not in {"scheduled", "registering"}:
+            raise ConflictError("registration can no longer be withdrawn")
+
+        row = conn.execute(
+            """
+            SELECT status
+            FROM tournament_registrations
+            WHERE table_id = ? AND user_id = ?
+            """,
+            (table_id, user_id),
+        ).fetchone()
+        if row is None or row["status"] != "registered":
+            raise NotFoundError("registration not found")
+
+        conn.execute(
+            """
+            UPDATE tournament_registrations
+            SET status = 'withdrawn', withdrawn_at = CURRENT_TIMESTAMP
+            WHERE table_id = ? AND user_id = ?
+            """,
+            (table_id, user_id),
+        )
+    return {
+        "table_id": table_id,
+        "user_id": user_id,
+        "status": "withdrawn",
+    }
+
+
+def get_tournament_registration(table_id: str, session_id: str) -> dict:
+    session = get_session(session_id)
+    conn = connect()
+    try:
+        _require_table(conn, table_id)
+        row = conn.execute(
+            """
+            SELECT status, registered_at, withdrawn_at
+            FROM tournament_registrations
+            WHERE table_id = ? AND user_id = ?
+            """,
+            (table_id, session["user_id"]),
+        ).fetchone()
+        if row is None:
+            return {
+                "table_id": table_id,
+                "user_id": session["user_id"],
+                "status": "not_registered",
+                "registered_at": None,
+                "withdrawn_at": None,
+            }
+        return {
+            "table_id": table_id,
+            "user_id": session["user_id"],
+            "status": row["status"],
+            "registered_at": row["registered_at"],
+            "withdrawn_at": row["withdrawn_at"],
+        }
+    finally:
+        conn.close()
+
+
 def _advance_blind_schedule_if_due(conn, table_id: str) -> None:
     row = conn.execute(
         """
@@ -645,6 +983,16 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
 
         if table["status"] == "closed":
             raise ConflictError("table is closed")
+        if (
+            table["table_mode"] == "tournament"
+            and os.getenv("INARENA_ENABLE_LEGACY_API") != "1"
+        ):
+            lifecycle = conn.execute(
+                "SELECT tournament_status FROM runtime_tables WHERE id = ?",
+                (table_id,),
+            ).fetchone()
+            if lifecycle["tournament_status"] != "running":
+                raise ConflictError("tournament is not running")
 
         existing = conn.execute(
             "SELECT hand_id FROM active_hands WHERE table_id = ?", (table_id,)
@@ -1350,7 +1698,9 @@ def _settle_payouts_in_conn(
             conn.execute(
                 """
                 UPDATE runtime_tables
-                SET winner_player_id = ?, finished_at = CURRENT_TIMESTAMP
+                SET winner_player_id = ?,
+                    finished_at = CURRENT_TIMESTAMP,
+                    tournament_status = 'finished'
                 WHERE id = ?
                 """,
                 (winner, table_id),
@@ -1930,7 +2280,12 @@ def join_table_with_session(
     finally:
         conn.close()
 
-    if mode == "tournament" or os.getenv("INARENA_ENABLE_LEGACY_API") == "1":
+    if mode == "tournament":
+        if os.getenv("INARENA_ENABLE_LEGACY_API") != "1":
+            register_tournament(table_id, session_id)
+        return join_table(table_id, player_id, seat_no, resolved_stack)
+
+    if os.getenv("INARENA_ENABLE_LEGACY_API") == "1":
         return join_table(table_id, player_id, seat_no, resolved_stack)
 
     with transaction() as conn:
@@ -2154,7 +2509,8 @@ def operator_dashboard() -> dict:
             SELECT id, name, status, table_mode, small_blind, big_blind,
                    blind_level_index, blind_schedule_status,
                    rebuy_window_open, addon_window_open,
-                   winner_player_id, finished_at
+                   winner_player_id, finished_at, tournament_status,
+                   scheduled_start_at, late_registration_close_at
             FROM runtime_tables
             ORDER BY created_at DESC
             """
@@ -2223,6 +2579,9 @@ def get_table_state(table_id: str) -> dict:
                    rebuy_max_per_player, addon_enabled, addon_stack,
                    rebuy_window_open, addon_window_open,
                    winner_player_id, finished_at,
+                   tournament_status, scheduled_start_at,
+                   registration_open_at, registration_close_at,
+                   late_registration_close_at,
                    created_at, updated_at
             FROM runtime_tables
             WHERE id = ?
@@ -2277,6 +2636,11 @@ def get_table_state(table_id: str) -> dict:
             "addon_window_open": bool(table["addon_window_open"]),
             "winner_player_id": table["winner_player_id"],
             "finished_at": table["finished_at"],
+            "tournament_status": table["tournament_status"],
+            "scheduled_start_at": table["scheduled_start_at"],
+            "registration_open_at": table["registration_open_at"],
+            "registration_close_at": table["registration_close_at"],
+            "late_registration_close_at": table["late_registration_close_at"],
             "created_at": table["created_at"],
             "updated_at": table["updated_at"],
             "seats": [dict(row) for row in seats],
