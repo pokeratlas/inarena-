@@ -318,11 +318,21 @@ def api_waitlist_status(
 async def api_waitlist_join(
     table_id: str,
     x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     if not x_session_id:
         raise HTTPException(status_code=401, detail="session is required")
     try:
+        payload = {"table_id": table_id}
+        replay = _idempotent_replay(
+            x_session_id, "waitlist-join", idempotency_key, payload
+        )
+        if replay is not None:
+            return replay
         result = join_cash_waitlist(table_id, x_session_id)
+        _idempotent_store(
+            x_session_id, "waitlist-join", idempotency_key, payload, result
+        )
         await manager.broadcast_state(table_id, "waitlist_joined")
         return result
     except Exception as exc:
@@ -333,11 +343,21 @@ async def api_waitlist_join(
 async def api_waitlist_leave(
     table_id: str,
     x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     if not x_session_id:
         raise HTTPException(status_code=401, detail="session is required")
     try:
+        payload = {"table_id": table_id}
+        replay = _idempotent_replay(
+            x_session_id, "waitlist-leave", idempotency_key, payload
+        )
+        if replay is not None:
+            return replay
         result = leave_cash_waitlist(table_id, x_session_id)
+        _idempotent_store(
+            x_session_id, "waitlist-leave", idempotency_key, payload, result
+        )
         await manager.broadcast_state(table_id, "waitlist_left")
         return result
     except Exception as exc:
@@ -349,15 +369,36 @@ async def api_claim_reservation(
     table_id: str,
     payload: ReservationClaimRequest,
     x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     if not x_session_id:
         raise HTTPException(status_code=401, detail="session is required")
     try:
+        request_payload = {
+            "table_id": table_id,
+            "reservation_id": payload.reservation_id,
+            "stack": payload.stack,
+        }
+        replay = _idempotent_replay(
+            x_session_id,
+            "reservation-claim",
+            idempotency_key,
+            request_payload,
+        )
+        if replay is not None:
+            return replay
         state = claim_seat_reservation(
             table_id,
             x_session_id,
             payload.reservation_id,
             payload.stack,
+        )
+        _idempotent_store(
+            x_session_id,
+            "reservation-claim",
+            idempotency_key,
+            request_payload,
+            state,
         )
         await manager.broadcast_state(table_id, "seat_reservation_claimed")
         return state
@@ -947,11 +988,21 @@ async def operator_abort_active_hand(
 async def api_tournament_register(
     table_id: str,
     x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     if not x_session_id:
         raise HTTPException(status_code=401, detail="session is required")
     try:
+        payload = {"table_id": table_id}
+        replay = _idempotent_replay(
+            x_session_id, "tournament-register", idempotency_key, payload
+        )
+        if replay is not None:
+            return replay
         result = register_tournament(table_id, x_session_id)
+        _idempotent_store(
+            x_session_id, "tournament-register", idempotency_key, payload, result
+        )
         await manager.broadcast_state(table_id, "tournament_registered")
         return result
     except Exception as exc:
@@ -962,11 +1013,21 @@ async def api_tournament_register(
 async def api_tournament_unregister(
     table_id: str,
     x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     if not x_session_id:
         raise HTTPException(status_code=401, detail="session is required")
     try:
+        payload = {"table_id": table_id}
+        replay = _idempotent_replay(
+            x_session_id, "tournament-unregister", idempotency_key, payload
+        )
+        if replay is not None:
+            return replay
         result = unregister_tournament(table_id, x_session_id)
+        _idempotent_store(
+            x_session_id, "tournament-unregister", idempotency_key, payload, result
+        )
         await manager.broadcast_state(table_id, "tournament_unregistered")
         return result
     except Exception as exc:
@@ -990,11 +1051,21 @@ def api_tournament_registration(
 async def api_tournament_rebuy(
     table_id: str,
     x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     if not x_session_id:
         raise HTTPException(status_code=401, detail="session is required")
     try:
+        payload = {"table_id": table_id}
+        replay = _idempotent_replay(
+            x_session_id, "tournament-rebuy", idempotency_key, payload
+        )
+        if replay is not None:
+            return replay
         state = tournament_rebuy(table_id, x_session_id)
+        _idempotent_store(
+            x_session_id, "tournament-rebuy", idempotency_key, payload, state
+        )
         await manager.broadcast_state(table_id, "player_rebuy")
         return state
     except Exception as exc:
@@ -1005,11 +1076,21 @@ async def api_tournament_rebuy(
 async def api_tournament_addon(
     table_id: str,
     x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     if not x_session_id:
         raise HTTPException(status_code=401, detail="session is required")
     try:
+        payload = {"table_id": table_id}
+        replay = _idempotent_replay(
+            x_session_id, "tournament-addon", idempotency_key, payload
+        )
+        if replay is not None:
+            return replay
         state = tournament_addon(table_id, x_session_id)
+        _idempotent_store(
+            x_session_id, "tournament-addon", idempotency_key, payload, state
+        )
         await manager.broadcast_state(table_id, "player_addon")
         return state
     except Exception as exc:
