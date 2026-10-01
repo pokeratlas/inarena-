@@ -268,3 +268,62 @@ def test_addon_replay_does_not_duplicate_chips_or_ledger(env):
         assert count == 1
     finally:
         conn.close()
+
+
+def test_idempotency_replay_survives_app_reload(tmp_path, monkeypatch):
+    db_path = tmp_path / "idempotency-restart.sqlite3"
+    monkeypatch.setenv("INARENA_DB_PATH", str(db_path))
+    monkeypatch.setenv("INARENA_ENABLE_LEGACY_API", "1")
+    monkeypatch.setenv("INARENA_OPERATOR_KEY", "operator")
+
+    import app.db as db
+    import app.service as service
+    import app.main as main
+
+    importlib.reload(db)
+    importlib.reload(service)
+    importlib.reload(main)
+
+    with TestClient(main.app) as client:
+        table_id = table(client)
+        sid = session(client, "restart-player")
+        headers = {
+            "X-Session-ID": sid,
+            "Idempotency-Key": "restart-join",
+        }
+        payload = {"seat_no": 1, "stack": 1000}
+        first = client.post(
+            f"/api/v1/tables/{table_id}/join-auth",
+            headers=headers,
+            json=payload,
+        )
+        assert first.status_code == 200
+        first_body = first.json()
+
+    importlib.reload(db)
+    importlib.reload(service)
+    importlib.reload(main)
+
+    with TestClient(main.app) as client:
+        replay = client.post(
+            f"/api/v1/tables/{table_id}/join-auth",
+            headers=headers,
+            json=payload,
+        )
+        assert replay.status_code == 200
+        assert replay.json() == first_body
+
+        conn = sqlite3.connect(db_path)
+        try:
+            count = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM table_ledger
+                WHERE table_id = ? AND player_id = 'restart-player'
+                  AND entry_type = 'buyin'
+                """,
+                (table_id,),
+            ).fetchone()[0]
+            assert count == 1
+        finally:
+            conn.close()
