@@ -52,6 +52,17 @@ export interface TableState {
   addon_window_open: boolean;
   winner_player_id: string | null;
   finished_at: string | null;
+  tournament_status:
+    | "scheduled"
+    | "registering"
+    | "running"
+    | "finished"
+    | "cancelled";
+  scheduled_start_at: number | null;
+  registration_open_at: number | null;
+  registration_close_at: number | null;
+  late_registration_close_at: number | null;
+  registration_count: number;
   seats: TableSeat[];
   active_hand: ActiveHand | null;
   created_at: string;
@@ -130,6 +141,9 @@ export interface OperatorDashboard {
     addon_window_open: number;
     winner_player_id: string | null;
     finished_at: string | null;
+    tournament_status: string;
+    scheduled_start_at: number | null;
+    late_registration_close_at: number | null;
   }>;
 }
 
@@ -144,4 +158,13 @@ export interface OperatorAuditEntry {
 export interface PlayerBalance {
   user_id: string;
   balance: number;
+}
+
+
+export interface TournamentRegistration {
+  table_id: string;
+  user_id: string;
+  status: "registered" | "withdrawn" | "not_registered";
+  registered_at: string | null;
+  withdrawn_at: string | null;
 }
