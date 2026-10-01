@@ -2,93 +2,145 @@
 
 ## Source of truth
 GitHub repository `pokeratlas/inarena-` is the primary codebase.
-The project is cloud-first and follows the INARENA Engineering Standard.
+The project follows the INARENA Product Engineering Standard.
 
-## Product structure
-- INARENA Player
-- INARENA Online
-- INARENA Clubs
-- INARENA Operator
-- Shared Platform Core
-
-## Architecture / standards
-Formal specifications now exist for:
+## Product / architecture specifications
+Formal repository specifications now exist for:
 - Product Map
 - Platform Architecture
 - Engineering Quality Gates
 - Poker Runtime State Machine
 - Ledger Invariants
 - Tournament Lifecycle
+- Cash Waitlist + Seat Reservation + Idempotency
 
 ## Verified backend
-Implemented and verified in GitHub Actions:
-- schema migrations through v10
-- explicit tournament lifecycle:
-  - scheduled
-  - registering
-  - running
-  - finished
-  - cancelled
-- lifecycle timing fields:
-  - scheduled_start_at
-  - registration_open_at
-  - registration_close_at
-  - late_registration_close_at
-- authenticated tournament registration
-- registration withdrawal before tournament start
-- late registration while tournament is running
-- late-registration cutoff enforcement
-- operator lifecycle commands:
-  - open-registration
-  - start
-  - cancel
-- minimum two registered/eligible players before start
-- production tournament hand start requires lifecycle status running
-- production tournament seating composes registration validation
-- registration count exposed in public table state
-- tournament winner settlement transitions lifecycle to finished
+Implemented and verified in GitHub Actions through schema v11:
 
-Previously verified platform capabilities remain:
-- NL Hold'em server-authoritative runtime
-- blinds/button/action sequencing/min-raise/side pots/showdown
-- realtime reconnect/replay and timeout policy
-- Telegram auth and sessions
-- internal non-monetary chip balances and ledger
-- cash/tournament table policies
-- rebuy/add-on windows
-- tournament finish places
-- operator audit/dashboard/recovery
-- production API hardening
+### Poker Runtime
+- server-authoritative NL Hold'em runtime
+- blinds / button / action order
+- min-raise / short all-in handling
+- main and side pots
+- showdown / tie split
+- timeout policy
+- realtime reconnect / replay
+- authenticated private cards
+- hand history
+
+### Tournament
+- scheduled / registering / running / finished / cancelled lifecycle
+- registration / withdrawal
+- late registration cutoff
+- rebuy / add-on windows
+- per-player rebuy limit
+- one-time add-on
+- elimination / finish place / winner
+- blind schedules
+
+### Cash / Ledger
+- internal non-monetary chip balances
+- cash buy-in min/max
+- atomic production balance debit on buy-in
+- atomic cash-out credit
+- persistent table ledger
+- operator balance adjustment / audit
+
+### Waitlist / Reservation
+- persistent FIFO cash waitlist
+- one active waitlist entry per table/player
+- server-side seat reservation
+- configurable reservation TTL
+- automatic expiry
+- expired reservation yields to the next waiting player
+- reservation claim uses normal buy-in validation
+- direct join cannot bypass another player's reservation
+- freed cash seats immediately trigger assignment
+- waitlist count exposed in table state
+
+### Idempotency
+Authenticated player mutations accept persistent idempotency keys:
+- join
+- stand
+- player action
+- tournament register / unregister
+- rebuy
+- add-on
+- waitlist join / leave
+- reservation claim
+
+Verified:
+- repeated successful request returns persisted original response
+- same key + different request fingerprint is rejected
+- duplicate buy-in does not duplicate ledger movement
+- duplicate player action does not create second hand action
+- duplicate add-on does not add chips twice
+- duplicate waitlist mutation does not duplicate queue entry
+- idempotency records survive application restart
 
 ## Verified frontend
-- tournament lifecycle status displayed in ONLINE lobby
-- registration count displayed
-- authenticated Register / Withdraw controls
-- tournament seat button only appears for registered players after status becomes running
-- cash flow remains separate
-- operator dashboard exposes Open registration / Start tournament / Cancel
-- existing blind schedule, rebuy/add-on, close-table and audit controls remain
+- Concept 2 mobile shell
+- Telegram session restore / refresh
+- ONLINE lobby / live table
+- cash/tournament separation
+- internal chip balance
+- tournament registration lifecycle UI
+- cash waitlist count
+- queue position
+- leave-waitlist control
+- reserved seat claim
+- direct cash join hidden when an active queue/reservation exists
+- client mutation functions generate Idempotency-Key and can accept an explicit key for retry
+- operator dashboard / audit / blind controls / tournament controls
 
 ## CI
 Latest backend CI: PASS.
 Latest frontend CI: PASS.
-Tournament lifecycle tests: PASS.
-Late-registration cutoff tests: PASS.
-Registration withdrawal tests: PASS.
-Existing NLH / ledger / security / reconnect regression suite: PASS.
+Schema v11: PASS.
+Waitlist FIFO: PASS.
+Reservation expiry/reassignment: PASS.
+Reservation claim: PASS.
+Reserved-seat bypass prevention: PASS.
+Persistent idempotency replay after restart: PASS.
+Existing NLH / ledger / security / tournament regression suite: PASS.
 
-## Current external blocker
-The connected Vercel integration currently returns no accessible Vercel team/account, so public preview deployment remains blocked.
+## Production hardening still required
+Current idempotency records are persisted after a successful business mutation in a separate transaction.
+A process crash in the narrow interval between the business commit and idempotency-record commit could allow a retry to execute twice.
 
-## Next bounded feature
-### Cash Waitlist + Seat Reservation + Idempotency
+Before public production release:
+- business mutation + idempotency result must become one atomic transaction, or
+- use a transactional outbox / command journal pattern.
 
-Acceptance criteria:
-1. Cash-table waitlist is ordered and persistent.
-2. A freed seat may be reserved for the next eligible player.
-3. Seat reservation has a server-side expiry timestamp.
-4. Expired reservation can be reclaimed automatically.
-5. Join, stand, registration, rebuy, add-on and player action mutations accept idempotency keys.
-6. Replaying the same mutation with the same idempotency key returns the original result without double chip movement.
-7. Idempotency state survives process restart.
-8. New rules are covered by unit/integration tests before UI work.
+## Current deployment blocker
+The connected Vercel integration currently exposes no accessible Vercel team/account, so public preview deployment remains blocked.
+
+## Next bounded features
+
+### 1. Transactional command / idempotency hardening
+- atomic command journal
+- remove post-commit crash window
+- transactional realtime outbox
+
+### 2. Operator exports and reports
+- table ledger export
+- tournament result export
+- registration export
+- audit export
+- CSV / JSON report endpoints
+
+### 3. Production data layer
+- PostgreSQL migration plan
+- Redis coordination/realtime plan
+- connection pooling
+- migration tooling
+- backup / restore
+- staging environment
+
+### 4. Deployment readiness
+- Docker runtime
+- environment contract
+- health/readiness endpoints
+- observability
+- persistent backend hosting
+- preview / staging deployment
