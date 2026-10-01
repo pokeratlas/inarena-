@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _database_path() -> str:
@@ -112,9 +112,29 @@ def _migration_2(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_3(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS recovery_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            table_id TEXT NOT NULL REFERENCES runtime_tables(id) ON DELETE CASCADE,
+            hand_id TEXT,
+            action TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            details_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_recovery_actions_table_id
+        ON recovery_actions(table_id, id);
+        """
+    )
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
+    3: _migration_3,
 }
 
 
