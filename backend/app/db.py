@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 def _database_path() -> str:
@@ -416,6 +416,27 @@ def _migration_11(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_12(conn: sqlite3.Connection) -> None:
+    cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(idempotency_records)").fetchall()
+    }
+    if "command_status" not in cols:
+        conn.execute(
+            """
+            ALTER TABLE idempotency_records
+            ADD COLUMN command_status TEXT NOT NULL DEFAULT 'completed'
+            """
+        )
+    if "updated_at" not in cols:
+        conn.execute(
+            """
+            ALTER TABLE idempotency_records
+            ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            """
+        )
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
@@ -428,6 +449,7 @@ MIGRATIONS = {
     9: _migration_9,
     10: _migration_10,
     11: _migration_11,
+    12: _migration_12,
 }
 
 
