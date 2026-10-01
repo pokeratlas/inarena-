@@ -5,6 +5,8 @@ export interface TableSeat {
   player_id: string;
   stack: number;
   status: string;
+  rebuy_count: number;
+  eliminated_at: string | null;
   updated_at: string;
 }
 
@@ -35,6 +37,15 @@ export interface TableState {
   }>;
   blind_level_index: number;
   blind_level_started_at: number | null;
+  blind_schedule_status: "running" | "paused";
+  blind_schedule_paused_at: number | null;
+  cash_buyin_min: number;
+  cash_buyin_max: number;
+  rebuy_enabled: boolean;
+  rebuy_stack: number;
+  rebuy_max_per_player: number;
+  addon_enabled: boolean;
+  addon_stack: number;
   seats: TableSeat[];
   active_hand: ActiveHand | null;
   created_at: string;
@@ -85,4 +96,28 @@ export interface PlayerHandHistoryEntry {
   payout: number;
   final_stack: number;
   completed_at: string;
+}
+
+
+export interface OperatorDashboard {
+  tables_total: number;
+  tables_playing: number;
+  tables_paused: number;
+  cash_tables: number;
+  tournament_tables: number;
+  active_hands: number;
+  seated_players: number;
+  eliminated_players: number;
+  active_sessions: number;
+  ledger_totals: Record<string, number>;
+  tables: Array<{
+    id: string;
+    name: string;
+    status: string;
+    table_mode: "cash" | "tournament";
+    small_blind: number;
+    big_blind: number;
+    blind_level_index: number;
+    blind_schedule_status: string;
+  }>;
 }
