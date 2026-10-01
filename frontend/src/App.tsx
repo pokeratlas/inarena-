@@ -81,16 +81,27 @@ function PlayerActions({
   table,
   playerId,
   sessionId,
+  connected,
 }: {
   table: TableState;
   playerId: string | null;
   sessionId: string | null;
+  connected: boolean;
 }) {
   const [amount, setAmount] = useState(0);
   const [pending, setPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [nowEpoch, setNowEpoch] = useState(() => Math.floor(Date.now() / 1000));
 
   const hand = table.active_hand;
+
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => setNowEpoch(Math.floor(Date.now() / 1000)),
+      250,
+    );
+    return () => window.clearInterval(timer);
+  }, []);
   const playerSeat = useMemo(
     () => table.seats.find((seat) => seat.player_id === playerId) ?? null,
     [table.seats, playerId],
@@ -106,6 +117,9 @@ function PlayerActions({
   }
 
   const actionNo = Number(hand.state.action_no ?? 0);
+  const deadline = Number(hand.state.action_deadline_epoch ?? 0);
+  const secondsLeft = deadline > 0 ? Math.max(0, deadline - nowEpoch) : null;
+  const interactionLocked = pending || !connected || secondsLeft === 0;
   const currentBet = Number(hand.state.current_bet ?? 0);
   const contributions =
     (hand.state.contributions as Record<string, number> | undefined) ?? {};
@@ -142,16 +156,25 @@ function PlayerActions({
 
   return (
     <section className="player-actions" aria-label="Действия игрока">
-      <p>Ваш ход · действие #{actionNo + 1}</p>
-      <button className="action-button action-danger" disabled={pending} type="button" onClick={() => void act("fold")}>
+      <div className="action-meta">
+        <p>Ваш ход · действие #{actionNo + 1}</p>
+        <span className={connected ? "action-clock" : "action-clock reconnecting"}>
+          {!connected
+            ? "Reconnecting…"
+            : secondsLeft === null
+              ? "—"
+              : `${secondsLeft}s`}
+        </span>
+      </div>
+      <button className="action-button action-danger" disabled={interactionLocked} type="button" onClick={() => void act("fold")}>
         Fold
       </button>
       {facingBet ? (
-        <button className="action-button" disabled={pending} type="button" onClick={() => void act("call")}>
+        <button className="action-button" disabled={interactionLocked} type="button" onClick={() => void act("call")}>
           Call
         </button>
       ) : (
-        <button className="action-button" disabled={pending} type="button" onClick={() => void act("check")}>
+        <button className="action-button" disabled={interactionLocked} type="button" onClick={() => void act("check")}>
           Check
         </button>
       )}
@@ -161,7 +184,7 @@ function PlayerActions({
             className="preset-button"
             key={preset.label}
             type="button"
-            disabled={pending || preset.value <= currentBet}
+            disabled={interactionLocked || preset.value <= currentBet}
             onClick={() => setAmount(preset.value)}
           >
             {preset.label}
@@ -179,7 +202,7 @@ function PlayerActions({
       </label>
       <button
         className="action-button action-primary"
-        disabled={pending || amount <= currentBet}
+        disabled={interactionLocked || amount <= currentBet}
         type="button"
         onClick={() =>
           void act(currentBet > 0 ? "raise" : "bet", amount)
@@ -187,6 +210,19 @@ function PlayerActions({
       >
         {currentBet > 0 ? "Raise" : "Bet"}
       </button>
+      {!connected ? (
+        <p className="action-state" role="status">
+          Соединение восстанавливается. Действия временно заблокированы.
+        </p>
+      ) : secondsLeft === 0 ? (
+        <p className="action-state" role="status">
+          Время хода истекло. Ожидаем обновление состояния стола.
+        </p>
+      ) : pending ? (
+        <p className="action-state" role="status">
+          Отправляем действие…
+        </p>
+      ) : null}
       {actionError ? <p role="alert">{actionError}</p> : null}
     </section>
   );
@@ -327,6 +363,7 @@ function OnlineTable({
         table={table}
         playerId={playerId}
         sessionId={sessionId}
+        connected={connected}
       />
 
       <section className="history-panel" aria-label="История раздач">
