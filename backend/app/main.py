@@ -8,6 +8,7 @@ from fastapi import FastAPI, Header, HTTPException, Response, WebSocket, WebSock
 from pydantic import BaseModel, Field
 
 from .db import ensure_schema
+from .telegram_auth import TelegramAuthError, validate_init_data
 from .service import (
     ConflictError,
     append_table_event,
@@ -69,6 +70,10 @@ class PlayerActionRequest(BaseModel):
 
 class RecoveryRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
+
+
+class TelegramAuthRequest(BaseModel):
+    init_data: str = Field(min_length=1)
 
 
 class SessionCreate(BaseModel):
@@ -226,6 +231,25 @@ async def api_complete_hand(
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/auth/telegram", status_code=201)
+def api_auth_telegram(payload: TelegramAuthRequest) -> dict[str, Any]:
+    try:
+        verified = validate_init_data(payload.init_data)
+    except TelegramAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    user = verified["user"]
+    return create_session(
+        user_id=f"tg:{user['id']}",
+        provider="telegram",
+        data={
+            "telegram_user": user,
+            "query_id": verified.get("query_id"),
+            "start_param": verified.get("start_param"),
+        },
+    )
 
 
 @app.post("/api/v1/sessions", status_code=201)
