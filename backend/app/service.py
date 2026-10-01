@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
+import time
 import uuid
 
 from .db import connect, transaction
@@ -14,6 +16,39 @@ class NotFoundError(RuntimeError):
 
 class ConflictError(RuntimeError):
     pass
+
+
+def _action_timeout_seconds() -> int:
+    raw = os.getenv("INARENA_ACTION_TIMEOUT_SECONDS", "30")
+    try:
+        return max(5, min(int(raw), 300))
+    except ValueError:
+        return 30
+
+
+def set_blind_level(table_id: str, small_blind: int, big_blind: int) -> dict:
+    if small_blind <= 0 or big_blind <= 0:
+        raise ConflictError("blinds must be positive")
+    if big_blind <= small_blind:
+        raise ConflictError("big blind must exceed small blind")
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        active = conn.execute(
+            "SELECT 1 FROM active_hands WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()
+        if active:
+            raise ConflictError("cannot change blinds during an active hand")
+        conn.execute(
+            """
+            UPDATE runtime_tables
+            SET small_blind = ?, big_blind = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (small_blind, big_blind, table_id),
+        )
+    return get_table_state(table_id)
 
 
 def create_table(name: str) -> dict:
@@ -217,6 +252,12 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
             "folded": [],
             "board": [],
             "showdown_pending": False,
+            "action_timeout_seconds": _action_timeout_seconds(),
+            "action_deadline_epoch": (
+                int(time.time()) + _action_timeout_seconds()
+                if action is not None
+                else None
+            ),
             "players": [
                 {
                     "seat_no": row["seat_no"],
@@ -518,6 +559,12 @@ def submit_player_action(
                 "acted": sorted(acted),
                 "folded": sorted(folded),
                 "showdown_pending": showdown_pending,
+                "action_timeout_seconds": _action_timeout_seconds(),
+                "action_deadline_epoch": (
+                    int(time.time()) + _action_timeout_seconds()
+                    if next_seat is not None
+                    else None
+                ),
             }
         )
 
@@ -569,7 +616,14 @@ def submit_player_action(
                 ),
             )
 
-    return get_table_state(table_id)
+    result = get_table_state(table_id)
+    hand_state = result.get("active_hand")
+    if (
+        hand_state is not None
+        and hand_state.get("state", {}).get("showdown_pending")
+    ):
+        return settle_showdown(table_id)
+    return result
 
 
 def submit_player_action_with_session(
