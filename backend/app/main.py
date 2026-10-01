@@ -22,6 +22,7 @@ from .service import (
     delete_session,
     get_player_balance,
     get_player_table_view,
+    get_tournament_registration,
     get_session,
     get_table_state,
     join_table,
@@ -40,10 +41,12 @@ from .service import (
     operator_abort_hand,
     operator_adjust_balance,
     operator_dashboard,
+    register_tournament,
     refresh_session,
     set_blind_schedule_status,
     resolve_expired_action,
     set_operator_status,
+    set_tournament_status,
     set_tournament_window,
     settle_showdown,
     stand,
@@ -53,6 +56,8 @@ from .service import (
     submit_player_action_with_session,
     tournament_addon,
     tournament_rebuy,
+    unregister_tournament,
+    configure_tournament_lifecycle,
 )
 
 app = FastAPI(title="INARENA API", version="0.2.0")
@@ -135,6 +140,13 @@ class BalanceAdjustRequest(BaseModel):
 
 class WindowControlRequest(BaseModel):
     open: bool
+
+
+class TournamentLifecycleRequest(BaseModel):
+    scheduled_start_at: int | None = Field(default=None, ge=0)
+    registration_open_at: int | None = Field(default=None, ge=0)
+    registration_close_at: int | None = Field(default=None, ge=0)
+    late_registration_close_at: int | None = Field(default=None, ge=0)
 
 
 class RecoveryRequest(BaseModel):
@@ -517,6 +529,42 @@ def operator_dashboard_view(
     return operator_dashboard()
 
 
+@app.post("/api/v1/operator/tables/{table_id}/tournament/lifecycle")
+async def operator_tournament_lifecycle(
+    table_id: str,
+    payload: TournamentLifecycleRequest,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = configure_tournament_lifecycle(
+            table_id,
+            payload.scheduled_start_at,
+            payload.registration_open_at,
+            payload.registration_close_at,
+            payload.late_registration_close_at,
+        )
+        await manager.broadcast_state(table_id, "tournament_lifecycle_configured")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/operator/tables/{table_id}/tournament/{command}")
+async def operator_tournament_command(
+    table_id: str,
+    command: str,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = set_tournament_status(table_id, command)
+        await manager.broadcast_state(table_id, f"tournament_{command}")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
 @app.post("/api/v1/operator/tables/{table_id}/configure")
 async def operator_configure_table(
     table_id: str,
@@ -704,6 +752,49 @@ async def operator_abort_active_hand(
         state = operator_abort_hand(table_id, payload.reason)
         await manager.broadcast_state(table_id, "hand_recovered")
         return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tournaments/{table_id}/register")
+async def api_tournament_register(
+    table_id: str,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        result = register_tournament(table_id, x_session_id)
+        await manager.broadcast_state(table_id, "tournament_registered")
+        return result
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.delete("/api/v1/tournaments/{table_id}/register")
+async def api_tournament_unregister(
+    table_id: str,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        result = unregister_tournament(table_id, x_session_id)
+        await manager.broadcast_state(table_id, "tournament_unregistered")
+        return result
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/tournaments/{table_id}/registration")
+def api_tournament_registration(
+    table_id: str,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        return get_tournament_registration(table_id, x_session_id)
     except Exception as exc:
         raise _http_error(exc) from exc
 
