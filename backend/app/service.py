@@ -2610,6 +2610,16 @@ def get_table_state(table_id: str) -> dict:
             """,
             (table_id,),
         ).fetchone()
+        registration_count = int(
+            conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM tournament_registrations
+                WHERE table_id = ? AND status = 'registered'
+                """,
+                (table_id,),
+            ).fetchone()["count"]
+        )
 
         return {
             "id": table["id"],
@@ -2641,6 +2651,7 @@ def get_table_state(table_id: str) -> dict:
             "registration_open_at": table["registration_open_at"],
             "registration_close_at": table["registration_close_at"],
             "late_registration_close_at": table["late_registration_close_at"],
+            "registration_count": registration_count,
             "created_at": table["created_at"],
             "updated_at": table["updated_at"],
             "seats": [dict(row) for row in seats],
