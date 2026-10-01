@@ -163,7 +163,7 @@ def test_expired_reservation_moves_to_next_waitlist_player(env):
         headers={"X-Session-ID": s2},
     ).json()
 
-    assert w1["status"] == "waiting"
+    assert w1["status"] == "expired"
     assert w2["status"] == "reserved"
     assert w2["reservation"]["seat_no"] == 1
 
