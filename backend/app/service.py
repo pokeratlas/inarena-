@@ -3076,119 +3076,196 @@ def operator_dashboard() -> dict:
         conn.close()
 
 
+def _get_table_state_with_conn(conn, table_id: str) -> dict:
+    table = conn.execute(
+        """
+        SELECT id, name, status, small_blind, big_blind,
+               last_button_seat, table_mode, starting_stack,
+               blind_schedule_json, blind_level_index,
+               blind_level_started_at, blind_schedule_status,
+               blind_schedule_paused_at, cash_buyin_min,
+               cash_buyin_max, rebuy_enabled, rebuy_stack,
+               rebuy_max_per_player, addon_enabled, addon_stack,
+               rebuy_window_open, addon_window_open,
+               winner_player_id, finished_at,
+               tournament_status, scheduled_start_at,
+               registration_open_at, registration_close_at,
+               late_registration_close_at,
+               created_at, updated_at
+        FROM runtime_tables
+        WHERE id = ?
+        """,
+        (table_id,),
+    ).fetchone()
+    if table is None:
+        raise NotFoundError("table not found")
+
+    seats = conn.execute(
+        """
+        SELECT seat_no, player_id, stack, status, rebuy_count,
+               addon_used, eliminated_at, finish_place, updated_at
+        FROM runtime_seats
+        WHERE table_id = ?
+        ORDER BY seat_no
+        """,
+        (table_id,),
+    ).fetchall()
+    hand = conn.execute(
+        """
+        SELECT hand_id, street, pot, button_seat, action_seat, state_json,
+               started_at, updated_at
+        FROM active_hands
+        WHERE table_id = ?
+        """,
+        (table_id,),
+    ).fetchone()
+    waitlist_count = int(
+        conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM cash_waitlist
+            WHERE table_id = ? AND status IN ('waiting', 'reserved')
+            """,
+            (table_id,),
+        ).fetchone()["count"]
+    )
+    registration_count = int(
+        conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM tournament_registrations
+            WHERE table_id = ? AND status = 'registered'
+            """,
+            (table_id,),
+        ).fetchone()["count"]
+    )
+
+    return {
+        "id": table["id"],
+        "name": table["name"],
+        "status": table["status"],
+        "small_blind": table["small_blind"],
+        "big_blind": table["big_blind"],
+        "last_button_seat": table["last_button_seat"],
+        "table_mode": table["table_mode"],
+        "starting_stack": table["starting_stack"],
+        "blind_schedule": json.loads(table["blind_schedule_json"] or "[]"),
+        "blind_level_index": table["blind_level_index"],
+        "blind_level_started_at": table["blind_level_started_at"],
+        "blind_schedule_status": table["blind_schedule_status"],
+        "blind_schedule_paused_at": table["blind_schedule_paused_at"],
+        "cash_buyin_min": table["cash_buyin_min"],
+        "cash_buyin_max": table["cash_buyin_max"],
+        "rebuy_enabled": bool(table["rebuy_enabled"]),
+        "rebuy_stack": table["rebuy_stack"],
+        "rebuy_max_per_player": table["rebuy_max_per_player"],
+        "addon_enabled": bool(table["addon_enabled"]),
+        "addon_stack": table["addon_stack"],
+        "rebuy_window_open": bool(table["rebuy_window_open"]),
+        "addon_window_open": bool(table["addon_window_open"]),
+        "winner_player_id": table["winner_player_id"],
+        "finished_at": table["finished_at"],
+        "tournament_status": table["tournament_status"],
+        "scheduled_start_at": table["scheduled_start_at"],
+        "registration_open_at": table["registration_open_at"],
+        "registration_close_at": table["registration_close_at"],
+        "late_registration_close_at": table["late_registration_close_at"],
+        "registration_count": registration_count,
+        "waitlist_count": waitlist_count,
+        "created_at": table["created_at"],
+        "updated_at": table["updated_at"],
+        "seats": [dict(row) for row in seats],
+        "active_hand": None
+        if hand is None
+        else {
+            "hand_id": hand["hand_id"],
+            "street": hand["street"],
+            "pot": hand["pot"],
+            "button_seat": hand["button_seat"],
+            "action_seat": hand["action_seat"],
+            "state": json.loads(hand["state_json"]),
+            "started_at": hand["started_at"],
+            "updated_at": hand["updated_at"],
+        },
+    }
+
+
+def _enqueue_realtime_outbox(conn, table_id: str, event_type: str) -> int:
+    state = _get_table_state_with_conn(conn, table_id)
+    cur = conn.execute(
+        """
+        INSERT INTO realtime_outbox(table_id, event_type, payload_json)
+        VALUES (?, ?, ?)
+        """,
+        (
+            table_id,
+            event_type,
+            json.dumps(state, separators=(",", ":")),
+        ),
+    )
+    return int(cur.lastrowid)
+
+
+def dispatch_table_outbox(table_id: str, limit: int = 100) -> list[dict]:
+    dispatched: list[dict] = []
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        rows = conn.execute(
+            """
+            SELECT id, table_id, event_type, payload_json, created_at
+            FROM realtime_outbox
+            WHERE table_id = ? AND dispatched_at IS NULL
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (table_id, max(1, min(limit, 500))),
+        ).fetchall()
+
+        for row in rows:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO realtime_events(
+                    table_id, event_type, payload_json, outbox_id
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    row["table_id"],
+                    row["event_type"],
+                    row["payload_json"],
+                    row["id"],
+                ),
+            )
+            event = conn.execute(
+                """
+                SELECT seq, table_id, event_type, payload_json, created_at
+                FROM realtime_events
+                WHERE outbox_id = ?
+                """,
+                (row["id"],),
+            ).fetchone()
+            conn.execute(
+                """
+                UPDATE realtime_outbox
+                SET dispatched_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (row["id"],),
+            )
+            dispatched.append(
+                {
+                    "seq": event["seq"],
+                    "table_id": event["table_id"],
+                    "event_type": event["event_type"],
+                    "payload": json.loads(event["payload_json"]),
+                    "created_at": event["created_at"],
+                }
+            )
+    return dispatched
+
+
 def get_table_state(table_id: str) -> dict:
     conn = connect()
     try:
-        table = conn.execute(
-            """
-            SELECT id, name, status, small_blind, big_blind,
-                   last_button_seat, table_mode, starting_stack,
-                   blind_schedule_json, blind_level_index,
-                   blind_level_started_at, blind_schedule_status,
-                   blind_schedule_paused_at, cash_buyin_min,
-                   cash_buyin_max, rebuy_enabled, rebuy_stack,
-                   rebuy_max_per_player, addon_enabled, addon_stack,
-                   rebuy_window_open, addon_window_open,
-                   winner_player_id, finished_at,
-                   tournament_status, scheduled_start_at,
-                   registration_open_at, registration_close_at,
-                   late_registration_close_at,
-                   created_at, updated_at
-            FROM runtime_tables
-            WHERE id = ?
-            """,
-            (table_id,),
-        ).fetchone()
-        if table is None:
-            raise NotFoundError("table not found")
-
-        seats = conn.execute(
-            """
-            SELECT seat_no, player_id, stack, status, rebuy_count,
-                   addon_used, eliminated_at, finish_place, updated_at
-            FROM runtime_seats
-            WHERE table_id = ?
-            ORDER BY seat_no
-            """,
-            (table_id,),
-        ).fetchall()
-        hand = conn.execute(
-            """
-            SELECT hand_id, street, pot, button_seat, action_seat, state_json,
-                   started_at, updated_at
-            FROM active_hands
-            WHERE table_id = ?
-            """,
-            (table_id,),
-        ).fetchone()
-        waitlist_count = int(
-            conn.execute(
-                """
-                SELECT COUNT(*) AS count
-                FROM cash_waitlist
-                WHERE table_id = ? AND status IN ('waiting', 'reserved')
-                """,
-                (table_id,),
-            ).fetchone()["count"]
-        )
-        registration_count = int(
-            conn.execute(
-                """
-                SELECT COUNT(*) AS count
-                FROM tournament_registrations
-                WHERE table_id = ? AND status = 'registered'
-                """,
-                (table_id,),
-            ).fetchone()["count"]
-        )
-
-        return {
-            "id": table["id"],
-            "name": table["name"],
-            "status": table["status"],
-            "small_blind": table["small_blind"],
-            "big_blind": table["big_blind"],
-            "last_button_seat": table["last_button_seat"],
-            "table_mode": table["table_mode"],
-            "starting_stack": table["starting_stack"],
-            "blind_schedule": json.loads(table["blind_schedule_json"] or "[]"),
-            "blind_level_index": table["blind_level_index"],
-            "blind_level_started_at": table["blind_level_started_at"],
-            "blind_schedule_status": table["blind_schedule_status"],
-            "blind_schedule_paused_at": table["blind_schedule_paused_at"],
-            "cash_buyin_min": table["cash_buyin_min"],
-            "cash_buyin_max": table["cash_buyin_max"],
-            "rebuy_enabled": bool(table["rebuy_enabled"]),
-            "rebuy_stack": table["rebuy_stack"],
-            "rebuy_max_per_player": table["rebuy_max_per_player"],
-            "addon_enabled": bool(table["addon_enabled"]),
-            "addon_stack": table["addon_stack"],
-            "rebuy_window_open": bool(table["rebuy_window_open"]),
-            "addon_window_open": bool(table["addon_window_open"]),
-            "winner_player_id": table["winner_player_id"],
-            "finished_at": table["finished_at"],
-            "tournament_status": table["tournament_status"],
-            "scheduled_start_at": table["scheduled_start_at"],
-            "registration_open_at": table["registration_open_at"],
-            "registration_close_at": table["registration_close_at"],
-            "late_registration_close_at": table["late_registration_close_at"],
-            "registration_count": registration_count,
-            "waitlist_count": waitlist_count,
-            "created_at": table["created_at"],
-            "updated_at": table["updated_at"],
-            "seats": [dict(row) for row in seats],
-            "active_hand": None
-            if hand is None
-            else {
-                "hand_id": hand["hand_id"],
-                "street": hand["street"],
-                "pot": hand["pot"],
-                "button_seat": hand["button_seat"],
-                "action_seat": hand["action_seat"],
-                "state": json.loads(hand["state_json"]),
-                "started_at": hand["started_at"],
-                "updated_at": hand["updated_at"],
-            },
-        }
+        return _get_table_state_with_conn(conn, table_id)
     finally:
         conn.close()
