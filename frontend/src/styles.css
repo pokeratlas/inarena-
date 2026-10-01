@@ -482,3 +482,19 @@ button {
   color: #9fb0cd;
   font-size: 11px;
 }
+
+
+.my-hand-history {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.my-hand-history h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.my-hand-history p {
+  margin: 4px 0;
+}
