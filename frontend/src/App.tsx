@@ -6,6 +6,7 @@ import {
   getCurrentSession,
   getOperatorAudit,
   getOperatorDashboard,
+  getTournamentRegistration,
   getHandActions,
   getHandHistory,
   getMyBalance,
@@ -16,14 +17,17 @@ import {
   operatorAdjustBalance,
   operatorBlindScheduleCommand,
   operatorCloseTable,
+  operatorTournamentCommand,
   operatorWindowControl,
   listTables,
+  registerTournament,
   standAuthenticated,
   submitPlayerAction,
   tournamentAddon,
   tournamentRebuy,
+  unregisterTournament,
 } from "./api";
-import type { AppMode, HandActionEntry, HandHistoryEntry, OperatorAuditEntry, OperatorDashboard, PlayerBalance, PlayerHandHistoryEntry, TableState } from "./types";
+import type { AppMode, HandActionEntry, HandHistoryEntry, OperatorAuditEntry, OperatorDashboard, PlayerBalance, PlayerHandHistoryEntry, TableState, TournamentRegistration } from "./types";
 import { useTableRealtime } from "./useTableRealtime";
 
 const offlineTabs = ["Главная", "Турниры", "Профиль"];
@@ -589,6 +593,7 @@ function OnlineLobby({
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [balance, setBalance] = useState<PlayerBalance | null>(null);
+  const [registrations, setRegistrations] = useState<Record<string, TournamentRegistration>>({});
   const [tableOpen, setTableOpen] = useState(false);
   const realtime = useTableRealtime(tableOpen ? selectedTableId : null);
 
@@ -630,6 +635,42 @@ function OnlineLobby({
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!session || tables.length === 0) {
+      setRegistrations({});
+      return;
+    }
+
+    let active = true;
+    const tournamentTables = tables.filter(
+      (table) => table.table_mode === "tournament",
+    );
+    void Promise.all(
+      tournamentTables.map(async (table) => {
+        try {
+          const registration = await getTournamentRegistration(
+            table.id,
+            session.session_id,
+          );
+          return [table.id, registration] as const;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((rows) => {
+      if (!active) return;
+      const next: Record<string, TournamentRegistration> = {};
+      for (const row of rows) {
+        if (row) next[row[0]] = row[1];
+      }
+      setRegistrations(next);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [session, tables]);
 
   if (tableOpen && realtime.state) {
     return (
@@ -678,7 +719,10 @@ function OnlineLobby({
               <article className="lobby-card" key={table.id}>
                 <strong>{table.name}</strong>
                 <span>
-                  {table.table_mode === "tournament" ? "Tournament" : "Cash"} · {table.small_blind}/{table.big_blind} · {table.seats.length} игроков
+                  {table.table_mode === "tournament"
+                    ? `Tournament · ${table.tournament_status} · ${table.registration_count} registered`
+                    : "Cash"}
+                  {" · "}{table.small_blind}/{table.big_blind} · {table.seats.length} игроков
                   {table.winner_player_id ? ` · Winner ${table.winner_player_id}` : ""}
                 </span>
                 <div className="lobby-actions">
@@ -693,50 +737,117 @@ function OnlineLobby({
                   >
                     Открыть
                   </button>
-                  {!seated && session && firstFreeSeat ? (
+                  {table.table_mode === "tournament" && session ? (
+                    <>
+                      {registrations[table.id]?.status !== "registered" &&
+                      ["registering", "running"].includes(table.tournament_status) ? (
+                        <button
+                          className="action-button action-primary"
+                          type="button"
+                          onClick={() =>
+                            void registerTournament(
+                              table.id,
+                              session.session_id,
+                            )
+                              .then((registration) =>
+                                setRegistrations((current) => ({
+                                  ...current,
+                                  [table.id]: registration,
+                                })),
+                              )
+                              .catch((cause) =>
+                                setLoadingError(
+                                  cause instanceof Error
+                                    ? cause.message
+                                    : "Tournament registration failed",
+                                ),
+                              )
+                          }
+                        >
+                          Зарегистрироваться
+                        </button>
+                      ) : null}
+                      {registrations[table.id]?.status === "registered" &&
+                      table.tournament_status === "registering" ? (
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() =>
+                            void unregisterTournament(
+                              table.id,
+                              session.session_id,
+                            ).then((registration) =>
+                              setRegistrations((current) => ({
+                                ...current,
+                                [table.id]: registration,
+                              })),
+                            )
+                          }
+                        >
+                          Отменить регистрацию
+                        </button>
+                      ) : null}
+                      {!seated &&
+                      firstFreeSeat &&
+                      registrations[table.id]?.status === "registered" &&
+                      table.tournament_status === "running" ? (
+                        <button
+                          className="action-button action-primary"
+                          type="button"
+                          onClick={() =>
+                            void joinAuthenticatedTable(
+                              table.id,
+                              session.session_id,
+                              firstFreeSeat,
+                              table.starting_stack,
+                            ).then((updated) => {
+                              setTables((current) =>
+                                current.map((item) =>
+                                  item.id === updated.id ? updated : item,
+                                ),
+                              );
+                              setSelectedTableId(table.id);
+                              setTableOpen(true);
+                              onTableScreenChange(true);
+                            })
+                          }
+                        >
+                          Сесть · Seat {firstFreeSeat}
+                        </button>
+                      ) : null}
+                    </>
+                  ) : !seated && session && firstFreeSeat ? (
                     <button
                       className="action-button action-primary"
                       type="button"
                       disabled={
                         table.status === "closed" ||
-                        (table.table_mode === "cash" &&
-                          (balance?.balance ?? 0) <
-                            Math.min(
-                              table.cash_buyin_max,
-                              Math.max(table.cash_buyin_min, table.starting_stack),
-                            ))
+                        (balance?.balance ?? 0) <
+                          Math.min(
+                            table.cash_buyin_max,
+                            Math.max(table.cash_buyin_min, table.starting_stack),
+                          )
                       }
                       onClick={() => {
-                        const buyIn =
-                          table.table_mode === "cash"
-                            ? Math.min(
-                                table.cash_buyin_max,
-                                Math.max(table.cash_buyin_min, table.starting_stack),
-                              )
-                            : table.starting_stack;
+                        const buyIn = Math.min(
+                          table.cash_buyin_max,
+                          Math.max(table.cash_buyin_min, table.starting_stack),
+                        );
                         void joinAuthenticatedTable(
                           table.id,
                           session.session_id,
                           firstFreeSeat,
                           buyIn,
-                        )
-                          .then((updated) => {
-                            setTables((current) =>
-                              current.map((item) =>
-                                item.id === updated.id ? updated : item,
-                              ),
-                            );
-                            setSelectedTableId(table.id);
-                            setTableOpen(true);
-                            onTableScreenChange(true);
-                          })
-                          .catch((cause) =>
-                            setLoadingError(
-                              cause instanceof Error
-                                ? cause.message
-                                : "Unable to join table",
+                        ).then((updated) => {
+                          setTables((current) =>
+                            current.map((item) =>
+                              item.id === updated.id ? updated : item,
                             ),
                           );
+                          setSelectedTableId(table.id);
+                          setTableOpen(true);
+                          onTableScreenChange(true);
+                        });
                       }}
                     >
                       Сесть · Seat {firstFreeSeat}
@@ -863,7 +974,71 @@ function OperatorDashboardView() {
                   {table.table_mode} · {table.small_blind}/{table.big_blind} · {table.status}
                 </span>
                 {table.table_mode === "tournament" ? (
-                  <div className="operator-actions">
+                  <>
+                    <span>Tournament: {table.tournament_status}</span>
+                    <div className="operator-actions">
+                      {table.tournament_status === "scheduled" ? (
+                        <>
+                          <button
+                            className="ghost-button"
+                            type="button"
+                            onClick={() =>
+                              void operatorTournamentCommand(
+                                table.id,
+                                "open-registration",
+                                operatorKey,
+                              ).then(() => load())
+                            }
+                          >
+                            Open registration
+                          </button>
+                          <button
+                            className="ghost-button action-danger"
+                            type="button"
+                            onClick={() =>
+                              void operatorTournamentCommand(
+                                table.id,
+                                "cancel",
+                                operatorKey,
+                              ).then(() => load())
+                            }
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : null}
+                      {table.tournament_status === "registering" ? (
+                        <>
+                          <button
+                            className="action-button action-primary"
+                            type="button"
+                            onClick={() =>
+                              void operatorTournamentCommand(
+                                table.id,
+                                "start",
+                                operatorKey,
+                              ).then(() => load())
+                            }
+                          >
+                            Start tournament
+                          </button>
+                          <button
+                            className="ghost-button action-danger"
+                            type="button"
+                            onClick={() =>
+                              void operatorTournamentCommand(
+                                table.id,
+                                "cancel",
+                                operatorKey,
+                              ).then(() => load())
+                            }
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                    <div className="operator-actions">
                     {(["start", "pause", "reset"] as const).map((command) => (
                       <button
                         key={command}
@@ -909,6 +1084,7 @@ function OperatorDashboardView() {
                       Add-on {table.addon_window_open ? "close" : "open"}
                     </button>
                   </div>
+                  </>
                 ) : null}
                 <div className="operator-actions">
                   <button
