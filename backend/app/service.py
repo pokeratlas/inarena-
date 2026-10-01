@@ -50,6 +50,54 @@ def _request_fingerprint(payload: dict) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def reserve_idempotency_command(
+    user_id: str,
+    operation: str,
+    idempotency_key: str,
+    request_payload: dict,
+) -> dict:
+    fingerprint = _request_fingerprint(request_payload)
+    with transaction() as conn:
+        row = conn.execute(
+            """
+            SELECT request_fingerprint, response_json, status_code,
+                   command_status
+            FROM idempotency_records
+            WHERE user_id = ? AND operation = ? AND idempotency_key = ?
+            """,
+            (user_id, operation, idempotency_key),
+        ).fetchone()
+        if row is None:
+            conn.execute(
+                """
+                INSERT INTO idempotency_records(
+                    user_id, operation, idempotency_key,
+                    request_fingerprint, response_json, status_code,
+                    command_status
+                ) VALUES (?, ?, ?, ?, '{}', 0, 'in_progress')
+                """,
+                (
+                    user_id,
+                    operation,
+                    idempotency_key,
+                    fingerprint,
+                ),
+            )
+            return {"state": "execute"}
+
+        if row["request_fingerprint"] != fingerprint:
+            raise ConflictError("idempotency key reused with different request")
+
+        if row["command_status"] == "completed":
+            return {
+                "state": "replay",
+                "response": json.loads(row["response_json"]),
+                "status_code": int(row["status_code"]),
+            }
+
+        return {"state": "in_progress"}
+
+
 def get_idempotent_result(
     user_id: str,
     operation: str,
@@ -61,7 +109,8 @@ def get_idempotent_result(
     try:
         row = conn.execute(
             """
-            SELECT request_fingerprint, response_json, status_code
+            SELECT request_fingerprint, response_json, status_code,
+                   command_status
             FROM idempotency_records
             WHERE user_id = ? AND operation = ? AND idempotency_key = ?
             """,
@@ -71,6 +120,8 @@ def get_idempotent_result(
             return None
         if row["request_fingerprint"] != fingerprint:
             raise ConflictError("idempotency key reused with different request")
+        if row["command_status"] != "completed":
+            return {"in_progress": True}
         return {
             "response": json.loads(row["response_json"]),
             "status_code": int(row["status_code"]),
@@ -91,32 +142,53 @@ def store_idempotent_result(
     with transaction() as conn:
         existing = conn.execute(
             """
-            SELECT request_fingerprint, response_json, status_code
+            SELECT request_fingerprint, command_status
             FROM idempotency_records
             WHERE user_id = ? AND operation = ? AND idempotency_key = ?
             """,
             (user_id, operation, idempotency_key),
         ).fetchone()
-        if existing is not None:
-            if existing["request_fingerprint"] != fingerprint:
-                raise ConflictError("idempotency key reused with different request")
+        if existing is None:
+            conn.execute(
+                """
+                INSERT INTO idempotency_records(
+                    user_id, operation, idempotency_key,
+                    request_fingerprint, response_json, status_code,
+                    command_status
+                ) VALUES (?, ?, ?, ?, ?, ?, 'completed')
+                """,
+                (
+                    user_id,
+                    operation,
+                    idempotency_key,
+                    fingerprint,
+                    json.dumps(response, separators=(",", ":")),
+                    int(status_code),
+                ),
+            )
             return
+
+        if existing["request_fingerprint"] != fingerprint:
+            raise ConflictError("idempotency key reused with different request")
+
         conn.execute(
             """
-            INSERT INTO idempotency_records(
-                user_id, operation, idempotency_key,
-                request_fingerprint, response_json, status_code
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            UPDATE idempotency_records
+            SET response_json = ?,
+                status_code = ?,
+                command_status = 'completed',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ? AND operation = ? AND idempotency_key = ?
             """,
             (
+                json.dumps(response, separators=(",", ":")),
+                int(status_code),
                 user_id,
                 operation,
                 idempotency_key,
-                fingerprint,
-                json.dumps(response, separators=(",", ":")),
-                int(status_code),
             ),
         )
+
 
 
 def _session_ttl_seconds() -> int:
