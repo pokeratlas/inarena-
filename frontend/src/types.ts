@@ -63,6 +63,7 @@ export interface TableState {
   registration_close_at: number | null;
   late_registration_close_at: number | null;
   registration_count: number;
+  waitlist_count: number;
   seats: TableSeat[];
   active_hand: ActiveHand | null;
   created_at: string;
@@ -167,4 +168,18 @@ export interface TournamentRegistration {
   status: "registered" | "withdrawn" | "not_registered";
   registered_at: string | null;
   withdrawn_at: string | null;
+}
+
+
+export interface CashWaitlistStatus {
+  table_id: string;
+  user_id: string;
+  status: "not_waiting" | "waiting" | "reserved" | "expired" | "left" | "seated";
+  position: number | null;
+  reservation: null | {
+    id: string;
+    seat_no: number;
+    status: string;
+    expires_at_epoch: number;
+  };
 }
