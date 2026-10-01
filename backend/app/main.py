@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import FastAPI, Header, HTTPException, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from .db import ensure_schema
+from .db import connect, ensure_schema, schema_version
 from .telegram_auth import TelegramAuthError, validate_init_data
 from .service import (
     AuthenticationError,
@@ -336,6 +336,52 @@ def _http_error(exc: Exception) -> HTTPException:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/ready")
+def ready() -> dict[str, Any]:
+    environment = os.getenv("INARENA_ENV", "development")
+    checks: dict[str, Any] = {
+        "database": "unknown",
+        "schema_version": None,
+        "environment": environment,
+    }
+
+    try:
+        conn = connect()
+        try:
+            conn.execute("SELECT 1").fetchone()
+        finally:
+            conn.close()
+        checks["database"] = "ok"
+        checks["schema_version"] = schema_version()
+    except Exception as exc:
+        checks["database"] = "error"
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "not_ready", "checks": checks},
+        ) from exc
+
+    if environment == "production":
+        missing: list[str] = []
+        if not os.getenv("INARENA_DATABASE_URL"):
+            missing.append("INARENA_DATABASE_URL")
+        if not os.getenv("INARENA_OPERATOR_KEY"):
+            missing.append("INARENA_OPERATOR_KEY")
+        if os.getenv("INARENA_ENABLE_LEGACY_API") == "1":
+            missing.append("INARENA_ENABLE_LEGACY_API must be disabled")
+        if missing:
+            checks["configuration"] = {
+                "status": "error",
+                "missing_or_invalid": missing,
+            }
+            raise HTTPException(
+                status_code=503,
+                detail={"status": "not_ready", "checks": checks},
+            )
+
+    checks["configuration"] = {"status": "ok"}
+    return {"status": "ready", "checks": checks}
 
 
 @app.get("/api/v1/tables")
