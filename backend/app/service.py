@@ -199,6 +199,30 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
     return get_table_state(table_id)
 
 
+def _draw_from_deck(conn, hand_id: str, count: int) -> list[str]:
+    row = conn.execute(
+        "SELECT deck_json FROM hand_secrets WHERE hand_id = ?",
+        (hand_id,),
+    ).fetchone()
+    if row is None:
+        raise NotFoundError("hand deck not found")
+
+    deck = json.loads(row["deck_json"])
+    if len(deck) < count:
+        raise ConflictError("not enough cards in deck")
+    cards = [deck.pop() for _ in range(count)]
+    conn.execute(
+        "UPDATE hand_secrets SET deck_json = ? WHERE hand_id = ?",
+        (json.dumps(deck, separators=(",", ":")), hand_id),
+    )
+    return cards
+
+
+def _clockwise_first(rows, after_seat: int):
+    later = [row for row in rows if row["seat_no"] > after_seat]
+    return later[0] if later else rows[0]
+
+
 def submit_player_action(
     table_id: str,
     player_id: str,
@@ -230,6 +254,9 @@ def submit_player_action(
             raise NotFoundError("no active hand")
 
         state = json.loads(hand["state_json"])
+        if state.get("showdown_pending"):
+            raise ConflictError("hand is waiting for settlement")
+
         action_no = int(state.get("action_no", 0))
         if expected_action_no != action_no:
             raise ConflictError("stale action sequence")
@@ -248,36 +275,47 @@ def submit_player_action(
             raise ConflictError("not this player's turn")
 
         contributions = dict(state.get("contributions", {}))
+        street_contributions = dict(state.get("street_contributions", {}))
         folded = set(state.get("folded", []))
+        acted = set(state.get("acted", []))
         current_bet = int(state.get("current_bet", 0))
-        player_contribution = int(contributions.get(player_id, 0))
+        player_street = int(street_contributions.get(player_id, 0))
+        total_contribution = int(contributions.get(player_id, 0))
         stack = int(seat["stack"])
         paid = 0
+        aggressive = False
 
         if action == "fold":
             folded.add(player_id)
+            acted.add(player_id)
         elif action == "check":
-            if player_contribution != current_bet:
+            if player_street != current_bet:
                 raise ConflictError("cannot check facing a bet")
+            acted.add(player_id)
         elif action == "call":
-            due = max(0, current_bet - player_contribution)
+            due = max(0, current_bet - player_street)
             if due == 0:
                 raise ConflictError("nothing to call")
             paid = min(due, stack)
+            acted.add(player_id)
         else:
             if amount is None or amount < 0:
                 raise ConflictError("amount is required")
             target = int(amount)
             if target <= current_bet:
                 raise ConflictError("bet or raise must exceed current bet")
-            paid = target - player_contribution
+            paid = target - player_street
             if paid <= 0 or paid > stack:
                 raise ConflictError("insufficient stack for action")
             current_bet = target
+            aggressive = True
+            acted = {player_id}
 
+        new_stack = stack
         if paid:
             new_stack = stack - paid
-            contributions[player_id] = player_contribution + paid
+            street_contributions[player_id] = player_street + paid
+            contributions[player_id] = total_contribution + paid
             conn.execute(
                 """
                 UPDATE runtime_seats
@@ -287,7 +325,8 @@ def submit_player_action(
                 (new_stack, table_id, player_id),
             )
         else:
-            contributions.setdefault(player_id, player_contribution)
+            street_contributions.setdefault(player_id, player_street)
+            contributions.setdefault(player_id, total_contribution)
 
         seats = conn.execute(
             """
@@ -298,27 +337,92 @@ def submit_player_action(
             """,
             (table_id,),
         ).fetchall()
-        eligible = [
-            row for row in seats
-            if row["player_id"] not in folded and int(row["stack"]) > 0
+        participants = [
+            row for row in seats if row["player_id"] not in folded
         ]
-        next_seat = seat["seat_no"]
-        if len(eligible) > 1:
-            later = [row for row in eligible if row["seat_no"] > seat["seat_no"]]
-            next_seat = (later[0] if later else eligible[0])["seat_no"]
-        elif eligible:
-            next_seat = eligible[0]["seat_no"]
+        actionable = [
+            row for row in participants if int(row["stack"]) > 0
+        ]
 
         next_action_no = action_no + 1
         next_pot = int(hand["pot"]) + paid
+        street = str(state.get("street", "preflop"))
+        board = list(state.get("board", []))
+        showdown_pending = False
+        next_seat: int | None = None
+
+        if len(participants) <= 1:
+            showdown_pending = True
+            next_seat = None
+            state["uncontested_winner"] = (
+                participants[0]["player_id"] if participants else None
+            )
+        else:
+            round_complete = (
+                all(row["player_id"] in acted for row in actionable)
+                and all(
+                    int(street_contributions.get(row["player_id"], 0))
+                    == current_bet
+                    for row in actionable
+                )
+            )
+
+            if round_complete:
+                if street == "river":
+                    showdown_pending = True
+                elif len(actionable) <= 1:
+                    missing = 5 - len(board)
+                    if missing > 0:
+                        board.extend(_draw_from_deck(conn, hand["hand_id"], missing))
+                    street = "river"
+                    showdown_pending = True
+                else:
+                    if street == "preflop":
+                        board.extend(_draw_from_deck(conn, hand["hand_id"], 3))
+                        street = "flop"
+                    elif street == "flop":
+                        board.extend(_draw_from_deck(conn, hand["hand_id"], 1))
+                        street = "turn"
+                    elif street == "turn":
+                        board.extend(_draw_from_deck(conn, hand["hand_id"], 1))
+                        street = "river"
+
+                    current_bet = 0
+                    street_contributions = {
+                        row["player_id"]: 0 for row in participants
+                    }
+                    acted = set()
+                    available = [
+                        row for row in participants if int(row["stack"]) > 0
+                    ]
+                    if available:
+                        next_seat = _clockwise_first(
+                            available,
+                            int(state.get("button_seat") or 0),
+                        )["seat_no"]
+            else:
+                available = [
+                    row for row in participants if int(row["stack"]) > 0
+                ]
+                if available:
+                    next_seat = _clockwise_first(
+                        available,
+                        int(seat["seat_no"]),
+                    )["seat_no"]
+
         state.update(
             {
+                "street": street,
                 "pot": next_pot,
+                "board": board,
                 "action_seat": next_seat,
                 "action_no": next_action_no,
                 "current_bet": current_bet,
                 "contributions": contributions,
+                "street_contributions": street_contributions,
+                "acted": sorted(acted),
                 "folded": sorted(folded),
+                "showdown_pending": showdown_pending,
             }
         )
 
@@ -343,11 +447,12 @@ def submit_player_action(
         conn.execute(
             """
             UPDATE active_hands
-            SET pot = ?, action_seat = ?, state_json = ?,
+            SET street = ?, pot = ?, action_seat = ?, state_json = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE table_id = ?
             """,
             (
+                street,
                 next_pot,
                 next_seat,
                 json.dumps(state, separators=(",", ":")),
