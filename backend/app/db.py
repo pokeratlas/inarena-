@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def _database_path() -> str:
@@ -178,12 +178,32 @@ def _migration_5(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_6(conn: sqlite3.Connection) -> None:
+    existing = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(runtime_tables)").fetchall()
+    }
+    if "small_blind" not in existing:
+        conn.execute(
+            "ALTER TABLE runtime_tables ADD COLUMN small_blind INTEGER NOT NULL DEFAULT 50"
+        )
+    if "big_blind" not in existing:
+        conn.execute(
+            "ALTER TABLE runtime_tables ADD COLUMN big_blind INTEGER NOT NULL DEFAULT 100"
+        )
+    if "last_button_seat" not in existing:
+        conn.execute(
+            "ALTER TABLE runtime_tables ADD COLUMN last_button_seat INTEGER"
+        )
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
     3: _migration_3,
     4: _migration_4,
     5: _migration_5,
+    6: _migration_6,
 }
 
 
