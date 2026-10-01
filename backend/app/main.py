@@ -28,6 +28,7 @@ from .service import (
     set_operator_status,
     stand,
     start_hand,
+    submit_player_action,
 )
 
 app = FastAPI(title="INARENA API", version="0.2.0")
@@ -57,6 +58,13 @@ class PotRequest(BaseModel):
 
 class CompleteHandRequest(BaseModel):
     payouts: dict[str, int]
+
+
+class PlayerActionRequest(BaseModel):
+    player_id: str = Field(min_length=1)
+    action: str = Field(min_length=1)
+    expected_action_no: int = Field(ge=0)
+    amount: int | None = Field(default=None, ge=0)
 
 
 class RecoveryRequest(BaseModel):
@@ -175,6 +183,24 @@ async def api_start_hand(table_id: str, payload: StartHandRequest) -> dict[str, 
     try:
         state = start_hand(table_id, payload.button_seat)
         await manager.broadcast_state(table_id, "hand_started")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tables/{table_id}/action")
+async def api_player_action(
+    table_id: str, payload: PlayerActionRequest
+) -> dict[str, Any]:
+    try:
+        state = submit_player_action(
+            table_id,
+            payload.player_id,
+            payload.action,
+            payload.expected_action_no,
+            payload.amount,
+        )
+        await manager.broadcast_state(table_id, "player_action")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
