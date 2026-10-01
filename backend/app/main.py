@@ -29,6 +29,7 @@ from .service import (
     set_hand_pot,
     operator_abort_hand,
     set_operator_status,
+    settle_showdown,
     stand,
     start_hand,
     submit_player_action,
@@ -374,6 +375,20 @@ async def operator_resume_table(
     try:
         state = set_operator_status(table_id, "open")
         await manager.broadcast_state(table_id, "table_resumed")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/operator/tables/{table_id}/settle-showdown")
+async def operator_settle_showdown(
+    table_id: str,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = settle_showdown(table_id)
+        await manager.broadcast_state(table_id, "showdown_settled")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
