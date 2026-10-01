@@ -37,6 +37,7 @@ from .service import (
     operator_abort_hand,
     operator_dashboard,
     refresh_session,
+    set_blind_schedule_status,
     resolve_expired_action,
     set_operator_status,
     settle_showdown,
@@ -45,6 +46,8 @@ from .service import (
     start_hand,
     submit_player_action,
     submit_player_action_with_session,
+    tournament_addon,
+    tournament_rebuy,
 )
 
 app = FastAPI(title="INARENA API", version="0.2.0")
@@ -111,6 +114,13 @@ class TableConfigRequest(BaseModel):
     small_blind: int = Field(gt=0)
     big_blind: int = Field(gt=0)
     blind_schedule: list[BlindScheduleLevel] = Field(default_factory=list)
+    cash_buyin_min: int = Field(default=1000, gt=0)
+    cash_buyin_max: int = Field(default=100000, gt=0)
+    rebuy_enabled: bool = False
+    rebuy_stack: int = Field(default=0, ge=0)
+    rebuy_max_per_player: int = Field(default=0, ge=0)
+    addon_enabled: bool = False
+    addon_stack: int = Field(default=0, ge=0)
 
 
 class RecoveryRequest(BaseModel):
@@ -483,6 +493,13 @@ async def operator_configure_table(
             payload.small_blind,
             payload.big_blind,
             [level.model_dump() for level in payload.blind_schedule],
+            payload.cash_buyin_min,
+            payload.cash_buyin_max,
+            payload.rebuy_enabled,
+            payload.rebuy_stack,
+            payload.rebuy_max_per_player,
+            payload.addon_enabled,
+            payload.addon_stack,
         )
         await manager.broadcast_state(table_id, "table_configured")
         return state
@@ -510,6 +527,24 @@ def operator_tables(
 ) -> list[dict[str, Any]]:
     _require_operator(x_operator_key)
     return list_tables()
+
+
+@app.post("/api/v1/operator/tables/{table_id}/blind-schedule/{command}")
+async def operator_blind_schedule_command(
+    table_id: str,
+    command: str,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = set_blind_schedule_status(table_id, command)
+        await manager.broadcast_state(
+            table_id,
+            f"blind_schedule_{command}",
+        )
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
 
 
 @app.post("/api/v1/operator/tables/{table_id}/blinds")
@@ -596,6 +631,36 @@ async def operator_abort_active_hand(
     try:
         state = operator_abort_hand(table_id, payload.reason)
         await manager.broadcast_state(table_id, "hand_recovered")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tables/{table_id}/rebuy")
+async def api_tournament_rebuy(
+    table_id: str,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        state = tournament_rebuy(table_id, x_session_id)
+        await manager.broadcast_state(table_id, "player_rebuy")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tables/{table_id}/addon")
+async def api_tournament_addon(
+    table_id: str,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        state = tournament_addon(table_id, x_session_id)
+        await manager.broadcast_state(table_id, "player_addon")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
