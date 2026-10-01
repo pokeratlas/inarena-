@@ -100,6 +100,13 @@ function PlayerActions({
     (hand.state.contributions as Record<string, number> | undefined) ?? {};
   const contribution = Number(contributions[playerSeat.player_id] ?? 0);
   const facingBet = currentBet > contribution;
+  const maxTarget = contribution + playerSeat.stack;
+  const presetTargets = [
+    { label: "1/2 Pot", value: Math.min(maxTarget, Math.max(currentBet + 1, currentBet + Math.ceil(hand.pot * 0.5))) },
+    { label: "3/4 Pot", value: Math.min(maxTarget, Math.max(currentBet + 1, currentBet + Math.ceil(hand.pot * 0.75))) },
+    { label: "Pot", value: Math.min(maxTarget, Math.max(currentBet + 1, currentBet + hand.pot)) },
+    { label: "All-in", value: maxTarget },
+  ];
 
   const act = async (
     action: "fold" | "check" | "call" | "bet" | "raise",
@@ -138,6 +145,19 @@ function PlayerActions({
           Check
         </button>
       )}
+      <div className="bet-presets" aria-label="Быстрый размер ставки">
+        {presetTargets.map((preset) => (
+          <button
+            className="preset-button"
+            key={preset.label}
+            type="button"
+            disabled={pending || preset.value <= currentBet}
+            onClick={() => setAmount(preset.value)}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
       <label className="bet-control">
         Ставка
         <input
