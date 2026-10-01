@@ -5,6 +5,7 @@ import secrets
 import uuid
 
 from .db import connect, transaction
+from .poker import evaluate_seven
 
 
 class NotFoundError(RuntimeError):
@@ -565,6 +566,86 @@ def complete_hand(table_id: str, payouts: dict[str, int]) -> dict:
             (table_id,),
         )
     return get_table_state(table_id)
+
+
+def calculate_showdown_payouts(table_id: str) -> dict[str, int]:
+    conn = connect()
+    try:
+        _require_table(conn, table_id)
+        hand = conn.execute(
+            """
+            SELECT hand_id, pot, state_json
+            FROM active_hands
+            WHERE table_id = ?
+            """,
+            (table_id,),
+        ).fetchone()
+        if hand is None:
+            raise NotFoundError("no active hand")
+
+        state = json.loads(hand["state_json"])
+        if not state.get("showdown_pending"):
+            raise ConflictError("hand is not ready for showdown")
+
+        pot = int(hand["pot"])
+        folded = set(state.get("folded", []))
+        board = list(state.get("board", []))
+        participants = [
+            player
+            for player in state.get("players", [])
+            if player["player_id"] not in folded
+        ]
+        if not participants:
+            raise ConflictError("no eligible showdown players")
+
+        uncontested = state.get("uncontested_winner")
+        if uncontested:
+            return {
+                player["player_id"]: pot if player["player_id"] == uncontested else 0
+                for player in state.get("players", [])
+            }
+
+        if len(board) != 5:
+            raise ConflictError("showdown requires a complete board")
+
+        scores: dict[str, tuple[int, ...]] = {}
+        seat_order: dict[str, int] = {}
+        for player in participants:
+            row = conn.execute(
+                """
+                SELECT cards_json
+                FROM hand_private_cards
+                WHERE hand_id = ? AND player_id = ?
+                """,
+                (hand["hand_id"], player["player_id"]),
+            ).fetchone()
+            if row is None:
+                raise ConflictError("private cards missing for showdown")
+            hole_cards = json.loads(row["cards_json"])
+            scores[player["player_id"]] = evaluate_seven(
+                [*hole_cards, *board]
+            )
+            seat_order[player["player_id"]] = int(player["seat_no"])
+
+        best = max(scores.values())
+        winners = sorted(
+            (player_id for player_id, score in scores.items() if score == best),
+            key=lambda player_id: seat_order[player_id],
+        )
+        share, remainder = divmod(pot, len(winners))
+        payouts = {
+            player["player_id"]: 0 for player in state.get("players", [])
+        }
+        for index, winner in enumerate(winners):
+            payouts[winner] = share + (1 if index < remainder else 0)
+        return payouts
+    finally:
+        conn.close()
+
+
+def settle_showdown(table_id: str) -> dict:
+    payouts = calculate_showdown_payouts(table_id)
+    return complete_hand(table_id, payouts)
 
 
 def set_operator_status(table_id: str, status: str) -> dict:
