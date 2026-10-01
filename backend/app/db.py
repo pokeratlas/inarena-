@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def _database_path() -> str:
@@ -197,6 +197,33 @@ def _migration_6(conn: sqlite3.Connection) -> None:
         )
 
 
+def _migration_7(conn: sqlite3.Connection) -> None:
+    existing = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(runtime_tables)").fetchall()
+    }
+    if "table_mode" not in existing:
+        conn.execute(
+            "ALTER TABLE runtime_tables ADD COLUMN table_mode TEXT NOT NULL DEFAULT 'cash'"
+        )
+    if "starting_stack" not in existing:
+        conn.execute(
+            "ALTER TABLE runtime_tables ADD COLUMN starting_stack INTEGER NOT NULL DEFAULT 10000"
+        )
+    if "blind_schedule_json" not in existing:
+        conn.execute(
+            "ALTER TABLE runtime_tables ADD COLUMN blind_schedule_json TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "blind_level_index" not in existing:
+        conn.execute(
+            "ALTER TABLE runtime_tables ADD COLUMN blind_level_index INTEGER NOT NULL DEFAULT 0"
+        )
+    if "blind_level_started_at" not in existing:
+        conn.execute(
+            "ALTER TABLE runtime_tables ADD COLUMN blind_level_started_at INTEGER"
+        )
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
@@ -204,6 +231,7 @@ MIGRATIONS = {
     4: _migration_4,
     5: _migration_5,
     6: _migration_6,
+    7: _migration_7,
 }
 
 
