@@ -164,3 +164,25 @@ export async function getMyHandHistory(
   if (!response.ok) throw new Error("Unable to load player hand history");
   return response.json();
 }
+
+
+export async function getCurrentSession(
+  sessionId: string,
+): Promise<AuthSession> {
+  const response = await fetch(`${API_BASE}/api/v1/auth/session`, {
+    headers: { "X-Session-ID": sessionId },
+  });
+  if (!response.ok) throw new Error("Session is invalid or expired");
+  return response.json();
+}
+
+export async function refreshCurrentSession(
+  sessionId: string,
+): Promise<AuthSession> {
+  const response = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+    method: "POST",
+    headers: { "X-Session-ID": sessionId },
+  });
+  if (!response.ok) throw new Error("Unable to refresh session");
+  return response.json();
+}
