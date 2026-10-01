@@ -441,14 +441,15 @@ def submit_player_action(
         street = str(state.get("street", "preflop"))
         board = list(state.get("board", []))
         showdown_pending = False
+        auto_winner: str | None = None
         next_seat: int | None = None
 
         if len(participants) <= 1:
-            showdown_pending = True
             next_seat = None
-            state["uncontested_winner"] = (
+            auto_winner = (
                 participants[0]["player_id"] if participants else None
             )
+            state["uncontested_winner"] = auto_winner
         else:
             round_complete = (
                 all(row["player_id"] in acted for row in actionable)
@@ -538,21 +539,35 @@ def submit_player_action(
                 json.dumps(state, separators=(",", ":")),
             ),
         )
-        conn.execute(
-            """
-            UPDATE active_hands
-            SET street = ?, pot = ?, action_seat = ?, state_json = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE table_id = ?
-            """,
-            (
-                street,
-                next_pot,
-                next_seat,
-                json.dumps(state, separators=(",", ":")),
+        if auto_winner is not None:
+            payouts = {
+                row["player_id"]: (
+                    next_pot if row["player_id"] == auto_winner else 0
+                )
+                for row in seats
+            }
+            _settle_payouts_in_conn(
+                conn,
                 table_id,
-            ),
-        )
+                {"hand_id": hand["hand_id"], "pot": next_pot},
+                payouts,
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE active_hands
+                SET street = ?, pot = ?, action_seat = ?, state_json = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE table_id = ?
+                """,
+                (
+                    street,
+                    next_pot,
+                    next_seat,
+                    json.dumps(state, separators=(",", ":")),
+                    table_id,
+                ),
+            )
 
     return get_table_state(table_id)
 
