@@ -23,6 +23,8 @@ from .service import (
     join_table,
     join_table_with_session,
     latest_table_seq,
+    list_hand_actions,
+    list_hand_history,
     list_recovery_actions,
     list_table_events_since,
     list_tables,
@@ -418,6 +420,28 @@ async def operator_abort_active_hand(
         state = operator_abort_hand(table_id, payload.reason)
         await manager.broadcast_state(table_id, "hand_recovered")
         return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/tables/{table_id}/hands")
+def api_hand_history(
+    table_id: str,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    try:
+        return list_hand_history(table_id, limit)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/tables/{table_id}/hands/{hand_id}/actions")
+def api_hand_actions(
+    table_id: str,
+    hand_id: str,
+) -> list[dict[str, Any]]:
+    try:
+        return list_hand_actions(table_id, hand_id)
     except Exception as exc:
         raise _http_error(exc) from exc
 
