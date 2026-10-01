@@ -11,7 +11,7 @@ COPY pyproject.toml /app/pyproject.toml
 COPY app /app/app
 
 RUN python -m pip install --upgrade pip \
-    && pip install . \
+    && pip install ".[postgres]" \
     && useradd --create-home --uid 10001 inarena \
     && mkdir -p /var/lib/inarena \
     && chown -R inarena:inarena /var/lib/inarena
