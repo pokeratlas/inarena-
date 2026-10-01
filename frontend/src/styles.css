@@ -387,3 +387,57 @@ button {
   border: 1px dashed rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.03);
 }
+
+
+.seat-badges {
+  display: flex;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.seat-badges span {
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(84, 123, 255, 0.18);
+  border: 1px solid rgba(109, 142, 255, 0.32);
+  color: #dce5ff;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.history-panel {
+  padding: 16px 18px;
+  border-radius: 22px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.history-panel h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.history-panel p {
+  margin: 5px 0;
+  color: #aebdda;
+  font-size: 12px;
+}
+
+.history-actions {
+  margin-top: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.history-actions span {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.04);
+  color: #bdcae2;
+  font-size: 11px;
+}
