@@ -32,6 +32,7 @@ from .service import (
     stand,
     start_hand,
     submit_player_action,
+    submit_player_action_with_session,
 )
 
 app = FastAPI(title="INARENA API", version="0.2.0")
@@ -229,6 +230,28 @@ async def api_start_hand(table_id: str, payload: StartHandRequest) -> dict[str, 
     try:
         state = start_hand(table_id, payload.button_seat)
         await manager.broadcast_state(table_id, "hand_started")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tables/{table_id}/action-auth")
+async def api_authenticated_player_action(
+    table_id: str,
+    payload: PlayerActionRequest,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        state = submit_player_action_with_session(
+            table_id,
+            x_session_id,
+            payload.action,
+            payload.expected_action_no,
+            payload.amount,
+        )
+        await manager.broadcast_state(table_id, "player_action")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
