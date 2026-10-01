@@ -766,6 +766,46 @@ def get_session(session_id: str) -> dict:
         conn.close()
 
 
+def join_table_with_session(
+    table_id: str,
+    session_id: str,
+    seat_no: int,
+    stack: int,
+) -> dict:
+    session = get_session(session_id)
+    return join_table(table_id, session["user_id"], seat_no, stack)
+
+
+def get_player_table_view(table_id: str, session_id: str) -> dict:
+    session = get_session(session_id)
+    state = get_table_state(table_id)
+    view = {
+        "table": state,
+        "player_id": session["user_id"],
+        "hole_cards": [],
+    }
+
+    hand = state.get("active_hand")
+    if hand is None:
+        return view
+
+    conn = connect()
+    try:
+        row = conn.execute(
+            """
+            SELECT cards_json
+            FROM hand_private_cards
+            WHERE hand_id = ? AND table_id = ? AND player_id = ?
+            """,
+            (hand["hand_id"], table_id, session["user_id"]),
+        ).fetchone()
+        if row is not None:
+            view["hole_cards"] = json.loads(row["cards_json"])
+        return view
+    finally:
+        conn.close()
+
+
 def delete_session(session_id: str) -> None:
     with transaction() as conn:
         cur = conn.execute(
