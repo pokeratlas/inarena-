@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import uuid
 
 from .db import connect, transaction
@@ -114,6 +115,17 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
         button = button_seat if button_seat in seat_numbers else seat_numbers[0]
         action = next((s for s in seat_numbers if s > button), seat_numbers[0])
         hand_id = str(uuid.uuid4())
+
+        deck = [
+            f"{rank}{suit}"
+            for rank in "23456789TJQKA"
+            for suit in "cdhs"
+        ]
+        secrets.SystemRandom().shuffle(deck)
+        private_cards: dict[str, list[str]] = {}
+        for row in seats:
+            private_cards[row["player_id"]] = [deck.pop(), deck.pop()]
+
         state = {
             "hand_id": hand_id,
             "street": "preflop",
@@ -123,7 +135,11 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
             "action_no": 0,
             "current_bet": 0,
             "contributions": {},
+            "street_contributions": {},
+            "acted": [],
             "folded": [],
+            "board": [],
+            "showdown_pending": False,
             "players": [
                 {
                     "seat_no": row["seat_no"],
@@ -136,6 +152,32 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
         state["contributions"] = {
             row["player_id"]: 0 for row in seats
         }
+        state["street_contributions"] = {
+            row["player_id"]: 0 for row in seats
+        }
+
+        conn.execute(
+            """
+            INSERT INTO hand_secrets(hand_id, table_id, deck_json)
+            VALUES (?, ?, ?)
+            """,
+            (hand_id, table_id, json.dumps(deck, separators=(",", ":"))),
+        )
+        for player_id, cards in private_cards.items():
+            conn.execute(
+                """
+                INSERT INTO hand_private_cards(
+                    hand_id, table_id, player_id, cards_json
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    hand_id,
+                    table_id,
+                    player_id,
+                    json.dumps(cards, separators=(",", ":")),
+                ),
+            )
+
         conn.execute(
             """
             INSERT INTO active_hands(
