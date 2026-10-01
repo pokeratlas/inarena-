@@ -91,6 +91,8 @@ def configure_table(
     schedule: list[dict] = []
     if table_mode == "tournament":
         schedule = _normalize_blind_schedule(blind_schedule or [])
+        small_blind = int(schedule[0]["small_blind"])
+        big_blind = int(schedule[0]["big_blind"])
 
     with transaction() as conn:
         _require_table(conn, table_id)
