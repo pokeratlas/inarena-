@@ -125,11 +125,12 @@ def test_check_rounds_progress_board_to_showdown(client):
 
     state = act(client, table_id, "p2", 6)
     state = act(client, table_id, "p1", 7)
-    hand = state["active_hand"]
-    assert hand["street"] == "river"
-    assert hand["action_seat"] is None
-    assert hand["state"]["showdown_pending"] is True
-    assert len(set(hand["state"]["board"])) == 5
+    assert state["active_hand"] is None
+    assert state["status"] == "open"
+
+    history = client.get(f"/api/v1/tables/{table_id}/hands").json()
+    assert len(history) == 1
+    assert history[0]["pot"] == 200
 
 
 def test_authenticated_join_uses_session_identity(client):
