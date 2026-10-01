@@ -3,12 +3,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   type AuthSession,
   authenticateTelegram,
+  getHandActions,
+  getHandHistory,
   getPlayerTableView,
   joinAuthenticatedTable,
   listTables,
   submitPlayerAction,
 } from "./api";
-import type { AppMode, TableState } from "./types";
+import type { AppMode, HandActionEntry, HandHistoryEntry, TableState } from "./types";
 import { useTableRealtime } from "./useTableRealtime";
 
 const offlineTabs = ["Главная", "Турниры", "Профиль"];
@@ -206,6 +208,8 @@ function OnlineTable({
   onBack: () => void;
 }) {
   const [holeCards, setHoleCards] = useState<string[]>([]);
+  const [history, setHistory] = useState<HandHistoryEntry[]>([]);
+  const [historyActions, setHistoryActions] = useState<HandActionEntry[]>([]);
   const handId = table.active_hand?.hand_id ?? null;
 
   useEffect(() => {
@@ -226,8 +230,37 @@ function OnlineTable({
     };
   }, [table.id, sessionId, handId]);
 
+  useEffect(() => {
+    let active = true;
+    getHandHistory(table.id, 5)
+      .then((items) => {
+        if (!active) return;
+        setHistory(items);
+        if (items[0]) {
+          void getHandActions(table.id, items[0].hand_id).then((actions) => {
+            if (active) setHistoryActions(actions);
+          });
+        } else {
+          setHistoryActions([]);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setHistory([]);
+          setHistoryActions([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [table.id, handId]);
+
   const board =
     (table.active_hand?.state.board as string[] | undefined) ?? [];
+  const buttonSeat = Number(table.active_hand?.state.button_seat ?? 0);
+  const smallBlindSeat = Number(table.active_hand?.state.small_blind_seat ?? 0);
+  const bigBlindSeat = Number(table.active_hand?.state.big_blind_seat ?? 0);
+  const minRaise = Number(table.active_hand?.state.min_raise ?? 0);
 
   return (
     <section className="table-screen" aria-label="Игровой стол">
@@ -246,6 +279,11 @@ function OnlineTable({
               Seat {seat.seat_no}
               {seat.player_id === playerId ? " · Вы" : ""}
             </strong>
+            <div className="seat-badges">
+              {seat.seat_no === buttonSeat ? <span>D</span> : null}
+              {seat.seat_no === smallBlindSeat ? <span>SB</span> : null}
+              {seat.seat_no === bigBlindSeat ? <span>BB</span> : null}
+            </div>
             <p>{seat.player_id}</p>
             <p>{seat.stack} chips</p>
           </article>
@@ -272,6 +310,12 @@ function OnlineTable({
 
       <div className="hand-status">
         <p>Статус: {table.status}</p>
+        {table.active_hand ? (
+          <p>
+            Blinds {String(table.active_hand.state.small_blind ?? "—")}/
+            {String(table.active_hand.state.big_blind ?? "—")} · min raise {minRaise}
+          </p>
+        ) : null}
         <p>
           {table.active_hand
             ? `${table.active_hand.street} · pot ${table.active_hand.pot} · ход seat ${table.active_hand.action_seat}`
@@ -284,6 +328,31 @@ function OnlineTable({
         playerId={playerId}
         sessionId={sessionId}
       />
+
+      <section className="history-panel" aria-label="История раздач">
+        <h3>Последняя раздача</h3>
+        {history[0] ? (
+          <>
+            <p>Pot {history[0].pot}</p>
+            <p>
+              Выплаты: {Object.entries(history[0].payouts)
+                .filter(([, value]) => value > 0)
+                .map(([player, value]) => `${player} +${value}`)
+                .join(" · ")}
+            </p>
+            <div className="history-actions">
+              {historyActions.map((item) => (
+                <span key={item.action_no}>
+                  #{item.action_no} seat {item.seat_no} {item.action}
+                  {item.amount === null ? "" : ` ${item.amount}`}
+                </span>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p>Завершённых раздач пока нет.</p>
+        )}
+      </section>
     </section>
   );
 }
