@@ -5,7 +5,9 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
+
+from .postgres_schema import POSTGRES_SCHEMA_STATEMENTS, POSTGRES_SCHEMA_VERSION
 
 
 SCHEMA_VERSION = 13
@@ -15,7 +17,64 @@ def _database_path() -> str:
     return os.getenv("INARENA_DB_PATH", str(Path("data") / "inarena.sqlite3"))
 
 
-def connect() -> sqlite3.Connection:
+def _database_url() -> str | None:
+    value = os.getenv("INARENA_DATABASE_URL")
+    return value.strip() if value and value.strip() else None
+
+
+def database_backend() -> str:
+    url = _database_url()
+    if url and url.startswith(("postgresql://", "postgres://")):
+        return "postgresql"
+    return "sqlite"
+
+
+def _translate_postgres_sql(sql: str) -> str:
+    translated = sql.replace("?", "%s")
+    translated = translated.replace(
+        "CURRENT_TIMESTAMP",
+        "(CURRENT_TIMESTAMP::text)",
+    )
+    return translated
+
+
+class PostgresConnection:
+    def __init__(self, raw: Any):
+        self.raw = raw
+
+    def execute(self, sql: str, params: tuple | list = ()):
+        return self.raw.execute(_translate_postgres_sql(sql), params)
+
+    def execute_raw(self, sql: str, params: tuple | list = ()):
+        return self.raw.execute(sql, params)
+
+    def commit(self) -> None:
+        self.raw.commit()
+
+    def rollback(self) -> None:
+        self.raw.rollback()
+
+    def close(self) -> None:
+        self.raw.close()
+
+
+def _connect_postgres() -> PostgresConnection:
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+    except ImportError as exc:
+        raise RuntimeError(
+            "PostgreSQL backend requires the 'postgres' project extra"
+        ) from exc
+
+    url = _database_url()
+    if not url:
+        raise RuntimeError("INARENA_DATABASE_URL is required for PostgreSQL")
+    raw = psycopg.connect(url, row_factory=dict_row)
+    return PostgresConnection(raw)
+
+
+def _connect_sqlite() -> sqlite3.Connection:
     path = _database_path()
     if path != ":memory:":
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -26,11 +85,18 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def connect():
+    if database_backend() == "postgresql":
+        return _connect_postgres()
+    return _connect_sqlite()
+
+
 @contextmanager
-def transaction() -> Iterator[sqlite3.Connection]:
+def transaction() -> Iterator[Any]:
     conn = connect()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        if database_backend() == "sqlite":
+            conn.execute("BEGIN IMMEDIATE")
         yield conn
         conn.commit()
     except Exception:
@@ -488,7 +554,35 @@ MIGRATIONS = {
 }
 
 
-def ensure_schema() -> None:
+def _ensure_postgres_schema() -> None:
+    conn = _connect_postgres()
+    try:
+        for statement in POSTGRES_SCHEMA_STATEMENTS:
+            conn.execute_raw(statement)
+
+        row = conn.execute_raw(
+            "SELECT version FROM inarena_schema_meta LIMIT 1"
+        ).fetchone()
+        if row is None:
+            conn.execute_raw(
+                "INSERT INTO inarena_schema_meta(version) VALUES (%s)",
+                (POSTGRES_SCHEMA_VERSION,),
+            )
+        elif int(row["version"]) != POSTGRES_SCHEMA_VERSION:
+            raise RuntimeError(
+                "PostgreSQL schema version "
+                f"{row['version']} does not match supported "
+                f"{POSTGRES_SCHEMA_VERSION}"
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _ensure_sqlite_schema() -> None:
     with transaction() as conn:
         current = int(conn.execute("PRAGMA user_version").fetchone()[0])
         if current > SCHEMA_VERSION:
@@ -501,7 +595,24 @@ def ensure_schema() -> None:
             conn.execute(f"PRAGMA user_version = {version}")
 
 
+def ensure_schema() -> None:
+    if database_backend() == "postgresql":
+        _ensure_postgres_schema()
+        return
+    _ensure_sqlite_schema()
+
+
 def schema_version() -> int:
+    if database_backend() == "postgresql":
+        conn = _connect_postgres()
+        try:
+            row = conn.execute_raw(
+                "SELECT version FROM inarena_schema_meta LIMIT 1"
+            ).fetchone()
+            return int(row["version"]) if row is not None else 0
+        finally:
+            conn.close()
+
     conn = connect()
     try:
         return int(conn.execute("PRAGMA user_version").fetchone()[0])
