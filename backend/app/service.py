@@ -1322,6 +1322,141 @@ def claim_seat_reservation(
     return get_table_state(table_id)
 
 
+def report_table_ledger(table_id: str) -> list[dict]:
+    conn = connect()
+    try:
+        _require_table(conn, table_id)
+        rows = conn.execute(
+            """
+            SELECT table_id, player_id, entry_type, amount,
+                   details_json, created_at
+            FROM table_ledger
+            WHERE table_id = ?
+            ORDER BY id ASC
+            """,
+            (table_id,),
+        ).fetchall()
+        return [
+            {
+                "table_id": row["table_id"],
+                "player_id": row["player_id"],
+                "entry_type": row["entry_type"],
+                "amount": int(row["amount"]),
+                "details": json.loads(row["details_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
+def report_tournament_results(table_id: str) -> list[dict]:
+    conn = connect()
+    try:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            """
+            SELECT table_mode, winner_player_id, finished_at
+            FROM runtime_tables
+            WHERE id = ?
+            """,
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "tournament":
+            raise ConflictError("results report requires tournament mode")
+        rows = conn.execute(
+            """
+            SELECT player_id, seat_no, finish_place, stack,
+                   rebuy_count, addon_used, eliminated_at
+            FROM runtime_seats
+            WHERE table_id = ?
+            ORDER BY
+                CASE WHEN finish_place IS NULL THEN 1 ELSE 0 END,
+                finish_place ASC,
+                seat_no ASC
+            """,
+            (table_id,),
+        ).fetchall()
+        return [
+            {
+                "table_id": table_id,
+                "player_id": row["player_id"],
+                "seat_no": int(row["seat_no"]),
+                "finish_place": row["finish_place"],
+                "stack": int(row["stack"]),
+                "rebuy_count": int(row["rebuy_count"]),
+                "addon_used": bool(row["addon_used"]),
+                "eliminated_at": row["eliminated_at"],
+                "winner": row["player_id"] == table["winner_player_id"],
+                "finished_at": table["finished_at"],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
+def report_tournament_registrations(table_id: str) -> list[dict]:
+    conn = connect()
+    try:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            "SELECT table_mode FROM runtime_tables WHERE id = ?",
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "tournament":
+            raise ConflictError("registration report requires tournament mode")
+        rows = conn.execute(
+            """
+            SELECT table_id, user_id, status, registered_at, withdrawn_at
+            FROM tournament_registrations
+            WHERE table_id = ?
+            ORDER BY registered_at ASC, user_id ASC
+            """,
+            (table_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def report_operator_audit(table_id: str | None = None) -> list[dict]:
+    conn = connect()
+    try:
+        if table_id is None:
+            rows = conn.execute(
+                """
+                SELECT id, table_id, action, details_json, created_at
+                FROM operator_audit
+                ORDER BY id ASC
+                """
+            ).fetchall()
+        else:
+            _require_table(conn, table_id)
+            rows = conn.execute(
+                """
+                SELECT id, table_id, action, details_json, created_at
+                FROM operator_audit
+                WHERE table_id = ?
+                ORDER BY id ASC
+                """,
+                (table_id,),
+            ).fetchall()
+        return [
+            {
+                "id": int(row["id"]),
+                "table_id": row["table_id"],
+                "action": row["action"],
+                "details": json.loads(row["details_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
 def set_blind_level(table_id: str, small_blind: int, big_blind: int) -> dict:
     if small_blind <= 0 or big_blind <= 0:
         raise ConflictError("blinds must be positive")
