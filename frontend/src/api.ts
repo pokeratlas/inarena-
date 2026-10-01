@@ -1,4 +1,4 @@
-import type { HandActionEntry, HandHistoryEntry, PlayerTableView, TableEvent, TableState } from "./types";
+import type { HandActionEntry, HandHistoryEntry, PlayerHandHistoryEntry, PlayerTableView, TableEvent, TableState } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
@@ -145,5 +145,22 @@ export async function getHandActions(
     `${API_BASE}/api/v1/tables/${tableId}/hands/${handId}/actions`,
   );
   if (!response.ok) throw new Error("Unable to load hand actions");
+  return response.json();
+}
+
+
+export async function getMyHandHistory(
+  sessionId: string,
+  limit = 10,
+): Promise<PlayerHandHistoryEntry[]> {
+  const url = new URL(
+    `${API_BASE}/api/v1/me/hands`,
+    window.location.origin,
+  );
+  url.searchParams.set("limit", String(limit));
+  const response = await fetch(url, {
+    headers: { "X-Session-ID": sessionId },
+  });
+  if (!response.ok) throw new Error("Unable to load player hand history");
   return response.json();
 }
