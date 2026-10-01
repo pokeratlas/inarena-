@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 def _database_path() -> str:
@@ -437,6 +437,40 @@ def _migration_12(conn: sqlite3.Connection) -> None:
         )
 
 
+def _migration_13(conn: sqlite3.Connection) -> None:
+    event_cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(realtime_events)").fetchall()
+    }
+    if "outbox_id" not in event_cols:
+        conn.execute(
+            "ALTER TABLE realtime_events ADD COLUMN outbox_id INTEGER"
+        )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_realtime_events_outbox_id
+        ON realtime_events(outbox_id)
+        WHERE outbox_id IS NOT NULL
+        """
+    )
+
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS realtime_outbox (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            table_id TEXT NOT NULL REFERENCES runtime_tables(id) ON DELETE CASCADE,
+            event_type TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            dispatched_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_realtime_outbox_pending
+        ON realtime_outbox(table_id, dispatched_at, id);
+        """
+    )
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
@@ -450,6 +484,7 @@ MIGRATIONS = {
     10: _migration_10,
     11: _migration_11,
     12: _migration_12,
+    13: _migration_13,
 }
 
 
