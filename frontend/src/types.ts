@@ -62,3 +62,15 @@ export interface HandActionEntry {
   state: Record<string, unknown>;
   created_at: string;
 }
+
+
+export interface PlayerHandHistoryEntry {
+  hand_id: string;
+  table_id: string;
+  pot: number;
+  hole_cards: string[];
+  board: string[];
+  payout: number;
+  final_stack: number;
+  completed_at: string;
+}
