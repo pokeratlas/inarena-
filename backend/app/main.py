@@ -17,9 +17,11 @@ from .service import (
     create_session,
     create_table,
     delete_session,
+    get_player_table_view,
     get_session,
     get_table_state,
     join_table,
+    join_table_with_session,
     latest_table_seq,
     list_recovery_actions,
     list_table_events_since,
@@ -41,6 +43,11 @@ class TableCreate(BaseModel):
 
 class JoinRequest(BaseModel):
     player_id: str = Field(min_length=1)
+    seat_no: int = Field(ge=1, le=9)
+    stack: int = Field(ge=0)
+
+
+class AuthJoinRequest(BaseModel):
     seat_no: int = Field(ge=1, le=9)
     stack: int = Field(ge=0)
 
@@ -159,6 +166,40 @@ def api_create_table(payload: TableCreate) -> dict[str, Any]:
 def api_get_table(table_id: str) -> dict[str, Any]:
     try:
         return get_table_state(table_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tables/{table_id}/join-auth")
+async def api_join_authenticated(
+    table_id: str,
+    payload: AuthJoinRequest,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        state = join_table_with_session(
+            table_id,
+            x_session_id,
+            payload.seat_no,
+            payload.stack,
+        )
+        await manager.broadcast_state(table_id, "player_joined")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/tables/{table_id}/view")
+def api_player_table_view(
+    table_id: str,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        return get_player_table_view(table_id, x_session_id)
     except Exception as exc:
         raise _http_error(exc) from exc
 
