@@ -265,7 +265,7 @@ def test_schema_migrations_reach_expected_version(client):
     conn = sqlite3.connect(db_path)
     try:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 11
+        assert version == 12
         tables = {
             row[0]
             for row in conn.execute(
