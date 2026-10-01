@@ -4,21 +4,26 @@ import {
   type AuthSession,
   authenticateTelegram,
   getCurrentSession,
+  getOperatorAudit,
   getOperatorDashboard,
   getHandActions,
   getHandHistory,
+  getMyBalance,
   getMyHandHistory,
   getPlayerTableView,
   refreshCurrentSession,
   joinAuthenticatedTable,
+  operatorAdjustBalance,
   operatorBlindScheduleCommand,
+  operatorCloseTable,
+  operatorWindowControl,
   listTables,
   standAuthenticated,
   submitPlayerAction,
   tournamentAddon,
   tournamentRebuy,
 } from "./api";
-import type { AppMode, HandActionEntry, HandHistoryEntry, OperatorDashboard, PlayerHandHistoryEntry, TableState } from "./types";
+import type { AppMode, HandActionEntry, HandHistoryEntry, OperatorAuditEntry, OperatorDashboard, PlayerBalance, PlayerHandHistoryEntry, TableState } from "./types";
 import { useTableRealtime } from "./useTableRealtime";
 
 const offlineTabs = ["Главная", "Турниры", "Профиль"];
@@ -303,6 +308,7 @@ function TablePolicyControls({
         <>
           {seat.status === "eliminated" &&
           table.rebuy_enabled &&
+          table.rebuy_window_open &&
           seat.rebuy_count < table.rebuy_max_per_player ? (
             <button
               className="action-button action-primary"
@@ -315,7 +321,10 @@ function TablePolicyControls({
               Rebuy +{table.rebuy_stack}
             </button>
           ) : null}
-          {seat.status === "seated" && table.addon_enabled ? (
+          {seat.status === "seated" &&
+          table.addon_enabled &&
+          table.addon_window_open &&
+          seat.addon_used === 0 ? (
             <button
               className="action-button"
               disabled={pending}
@@ -464,7 +473,11 @@ function OnlineTable({
               {seat.seat_no === bigBlindSeat ? <span>BB</span> : null}
             </div>
             <p>{seat.player_id}</p>
-            <p>{seat.stack} chips</p>
+            <p>
+              {seat.stack} chips
+              {seat.finish_place ? ` · #${seat.finish_place}` : ""}
+              {seat.status === "eliminated" ? " · eliminated" : ""}
+            </p>
           </article>
         ))}
       </div>
@@ -498,7 +511,9 @@ function OnlineTable({
         <p>
           {table.active_hand
             ? `${table.active_hand.street} · pot ${table.active_hand.pot} · ход seat ${table.active_hand.action_seat}`
-            : "Ожидание раздачи"}
+            : table.winner_player_id
+              ? `Tournament winner: ${table.winner_player_id}`
+              : "Ожидание раздачи"}
         </p>
       </div>
 
@@ -573,8 +588,27 @@ function OnlineLobby({
   const [tables, setTables] = useState<TableState[]>([]);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
+  const [balance, setBalance] = useState<PlayerBalance | null>(null);
   const [tableOpen, setTableOpen] = useState(false);
   const realtime = useTableRealtime(tableOpen ? selectedTableId : null);
+
+  useEffect(() => {
+    if (!session) {
+      setBalance(null);
+      return;
+    }
+    let active = true;
+    getMyBalance(session.session_id)
+      .then((nextBalance) => {
+        if (active) setBalance(nextBalance);
+      })
+      .catch(() => {
+        if (active) setBalance(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [session]);
 
   useEffect(() => {
     let active = true;
@@ -620,6 +654,7 @@ function OnlineLobby({
       <header className="app-header">
         <p>INARENA ONLINE</p>
         <h1>Лобби</h1>
+        {balance ? <span className="balance-chip">Баланс {balance.balance} chips</span> : null}
       </header>
 
       {loadingError ? <p role="alert">{loadingError}</p> : null}
@@ -644,6 +679,7 @@ function OnlineLobby({
                 <strong>{table.name}</strong>
                 <span>
                   {table.table_mode === "tournament" ? "Tournament" : "Cash"} · {table.small_blind}/{table.big_blind} · {table.seats.length} игроков
+                  {table.winner_player_id ? ` · Winner ${table.winner_player_id}` : ""}
                 </span>
                 <div className="lobby-actions">
                   <button
@@ -661,12 +697,28 @@ function OnlineLobby({
                     <button
                       className="action-button action-primary"
                       type="button"
+                      disabled={
+                        table.status === "closed" ||
+                        (table.table_mode === "cash" &&
+                          (balance?.balance ?? 0) <
+                            Math.min(
+                              table.cash_buyin_max,
+                              Math.max(table.cash_buyin_min, table.starting_stack),
+                            ))
+                      }
                       onClick={() => {
+                        const buyIn =
+                          table.table_mode === "cash"
+                            ? Math.min(
+                                table.cash_buyin_max,
+                                Math.max(table.cash_buyin_min, table.starting_stack),
+                              )
+                            : table.starting_stack;
                         void joinAuthenticatedTable(
                           table.id,
                           session.session_id,
                           firstFreeSeat,
-                          table.starting_stack,
+                          buyIn,
                         )
                           .then((updated) => {
                             setTables((current) =>
@@ -706,13 +758,20 @@ function OperatorDashboardView() {
     () => window.sessionStorage.getItem("inarena_operator_key") ?? "",
   );
   const [dashboard, setDashboard] = useState<OperatorDashboard | null>(null);
+  const [audit, setAudit] = useState<OperatorAuditEntry[]>([]);
+  const [balanceUser, setBalanceUser] = useState("");
+  const [balanceDelta, setBalanceDelta] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const load = async (key = operatorKey) => {
     setError(null);
     try {
-      const data = await getOperatorDashboard(key);
+      const [data, auditRows] = await Promise.all([
+        getOperatorDashboard(key),
+        getOperatorAudit(key),
+      ]);
       setDashboard(data);
+      setAudit(auditRows);
       window.sessionStorage.setItem("inarena_operator_key", key);
     } catch (cause) {
       setDashboard(null);
@@ -751,12 +810,49 @@ function OperatorDashboardView() {
 
       {dashboard ? (
         <>
+          <section className="operator-balance-control">
+            <input
+              placeholder="User ID"
+              value={balanceUser}
+              onChange={(event) => setBalanceUser(event.target.value)}
+            />
+            <input
+              type="number"
+              placeholder="Δ chips"
+              value={balanceDelta}
+              onChange={(event) => setBalanceDelta(Number(event.target.value))}
+            />
+            <button
+              className="action-button action-primary"
+              type="button"
+              disabled={!balanceUser || balanceDelta === 0}
+              onClick={() =>
+                void operatorAdjustBalance(
+                  balanceUser,
+                  balanceDelta,
+                  operatorKey,
+                )
+                  .then(() => load())
+                  .catch((cause) =>
+                    setError(
+                      cause instanceof Error
+                        ? cause.message
+                        : "Balance adjustment failed",
+                    ),
+                  )
+              }
+            >
+              Изменить баланс
+            </button>
+          </section>
+
           <section className="operator-metrics">
             <article><strong>{dashboard.tables_total}</strong><span>Tables</span></article>
             <article><strong>{dashboard.active_hands}</strong><span>Active hands</span></article>
             <article><strong>{dashboard.seated_players}</strong><span>Players</span></article>
             <article><strong>{dashboard.eliminated_players}</strong><span>Eliminated</span></article>
             <article><strong>{dashboard.active_sessions}</strong><span>Sessions</span></article>
+            <article><strong>{dashboard.operator_audit_entries}</strong><span>Audit events</span></article>
           </section>
 
           <section className="operator-tables">
@@ -784,8 +880,63 @@ function OperatorDashboardView() {
                         {command}
                       </button>
                     ))}
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() =>
+                        void operatorWindowControl(
+                          table.id,
+                          "rebuy",
+                          !Boolean(table.rebuy_window_open),
+                          operatorKey,
+                        ).then(() => load())
+                      }
+                    >
+                      Rebuy {table.rebuy_window_open ? "close" : "open"}
+                    </button>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() =>
+                        void operatorWindowControl(
+                          table.id,
+                          "addon",
+                          !Boolean(table.addon_window_open),
+                          operatorKey,
+                        ).then(() => load())
+                      }
+                    >
+                      Add-on {table.addon_window_open ? "close" : "open"}
+                    </button>
                   </div>
                 ) : null}
+                <div className="operator-actions">
+                  <button
+                    className="ghost-button action-danger"
+                    type="button"
+                    disabled={table.status === "closed"}
+                    onClick={() =>
+                      void operatorCloseTable(table.id, operatorKey).then(() =>
+                        load(),
+                      )
+                    }
+                  >
+                    Close table
+                  </button>
+                </div>
+                {table.winner_player_id ? (
+                  <span>Winner: {table.winner_player_id}</span>
+                ) : null}
+              </article>
+            ))}
+          </section>
+
+          <section className="operator-audit">
+            <h3>Audit</h3>
+            {audit.slice(0, 20).map((entry) => (
+              <article key={entry.id}>
+                <strong>{entry.action}</strong>
+                <span>{entry.table_id ?? "global"} · {entry.created_at}</span>
               </article>
             ))}
           </section>
