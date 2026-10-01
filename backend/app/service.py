@@ -2713,6 +2713,19 @@ def join_table_with_session(
 
     with transaction() as conn:
         _require_table(conn, table_id)
+        _assign_waitlist_reservations_in_conn(conn, table_id)
+        reservation = conn.execute(
+            """
+            SELECT user_id
+            FROM seat_reservations
+            WHERE table_id = ? AND seat_no = ? AND status = 'active'
+            """,
+            (table_id, seat_no),
+        ).fetchone()
+        if reservation is not None:
+            if reservation["user_id"] != player_id:
+                raise ConflictError("seat is reserved for another player")
+            raise ConflictError("claim the active seat reservation")
         if resolved_stack < int(row["cash_buyin_min"]) or resolved_stack > int(row["cash_buyin_max"]):
             raise ConflictError("cash buy-in outside configured range")
         balance = _ensure_player_balance(conn, player_id)
