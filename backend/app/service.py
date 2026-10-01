@@ -1068,6 +1068,64 @@ def delete_session(session_id: str) -> None:
             raise NotFoundError("session not found")
 
 
+def list_hand_history(table_id: str, limit: int = 50) -> list[dict]:
+    conn = connect()
+    try:
+        _require_table(conn, table_id)
+        rows = conn.execute(
+            """
+            SELECT hand_id, pot, payouts_json, stacks_json, completed_at
+            FROM hand_results
+            WHERE table_id = ?
+            ORDER BY completed_at DESC, hand_id DESC
+            LIMIT ?
+            """,
+            (table_id, max(1, min(limit, 200))),
+        ).fetchall()
+        return [
+            {
+                "hand_id": row["hand_id"],
+                "pot": row["pot"],
+                "payouts": json.loads(row["payouts_json"]),
+                "final_stacks": json.loads(row["stacks_json"]),
+                "completed_at": row["completed_at"],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
+def list_hand_actions(table_id: str, hand_id: str) -> list[dict]:
+    conn = connect()
+    try:
+        _require_table(conn, table_id)
+        rows = conn.execute(
+            """
+            SELECT action_no, player_id, seat_no, action, amount,
+                   state_json, created_at
+            FROM hand_actions
+            WHERE table_id = ? AND hand_id = ?
+            ORDER BY action_no ASC
+            """,
+            (table_id, hand_id),
+        ).fetchall()
+        return [
+            {
+                "action_no": row["action_no"],
+                "player_id": row["player_id"],
+                "seat_no": row["seat_no"],
+                "action": row["action"],
+                "amount": row["amount"],
+                "state": json.loads(row["state_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
 def get_table_state(table_id: str) -> dict:
     conn = connect()
     try:
