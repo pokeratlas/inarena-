@@ -441,3 +441,44 @@ button {
   color: #bdcae2;
   font-size: 11px;
 }
+
+
+.action-meta {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.action-meta p {
+  margin: 0;
+}
+
+.action-clock {
+  min-width: 54px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(73, 217, 150, 0.12);
+  border: 1px solid rgba(73, 217, 150, 0.28);
+  color: #9ff1c9;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.action-clock.reconnecting {
+  background: rgba(255, 190, 92, 0.10);
+  border-color: rgba(255, 190, 92, 0.28);
+  color: #ffd59b;
+}
+
+.action-state {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #9fb0cd;
+  font-size: 11px;
+}
