@@ -512,7 +512,7 @@ function OnlineLobby({
               <article className="lobby-card" key={table.id}>
                 <strong>{table.name}</strong>
                 <span>
-                  {table.status} · {table.seats.length} игроков
+                  {table.status} · {table.small_blind}/{table.big_blind} · {table.seats.length} игроков
                 </span>
                 <div className="lobby-actions">
                   <button
