@@ -36,7 +36,9 @@ def list_tables() -> list[dict]:
 
 
 def _require_table(conn, table_id: str) -> None:
-    row = conn.execute("SELECT id FROM runtime_tables WHERE id = ?", (table_id,)).fetchone()
+    row = conn.execute(
+        "SELECT id FROM runtime_tables WHERE id = ?", (table_id,)
+    ).fetchone()
     if row is None:
         raise NotFoundError("table not found")
 
@@ -69,6 +71,11 @@ def join_table(table_id: str, player_id: str, seat_no: int, stack: int) -> dict:
 def stand(table_id: str, player_id: str) -> dict:
     with transaction() as conn:
         _require_table(conn, table_id)
+        active = conn.execute(
+            "SELECT 1 FROM active_hands WHERE table_id = ?", (table_id,)
+        ).fetchone()
+        if active:
+            raise ConflictError("cannot stand during an active hand")
         cur = conn.execute(
             "DELETE FROM runtime_seats WHERE table_id = ? AND player_id = ?",
             (table_id, player_id),
@@ -114,7 +121,11 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
             "button_seat": button,
             "action_seat": action,
             "players": [
-                {"seat_no": row["seat_no"], "player_id": row["player_id"], "stack": row["stack"]}
+                {
+                    "seat_no": row["seat_no"],
+                    "player_id": row["player_id"],
+                    "stack": row["stack"],
+                }
                 for row in seats
             ],
         }
@@ -124,7 +135,13 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
                 table_id, hand_id, street, pot, button_seat, action_seat, state_json
             ) VALUES (?, ?, 'preflop', 0, ?, ?, ?)
             """,
-            (table_id, hand_id, button, action, json.dumps(state, separators=(",", ":"))),
+            (
+                table_id,
+                hand_id,
+                button,
+                action,
+                json.dumps(state, separators=(",", ":")),
+            ),
         )
         conn.execute(
             "UPDATE runtime_tables SET status = 'playing', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -133,17 +150,150 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
     return get_table_state(table_id)
 
 
-def complete_hand(table_id: str) -> dict:
+def set_hand_pot(table_id: str, pot: int) -> dict:
+    if pot < 0:
+        raise ConflictError("pot must be non-negative")
     with transaction() as conn:
         _require_table(conn, table_id)
-        cur = conn.execute("DELETE FROM active_hands WHERE table_id = ?", (table_id,))
-        if cur.rowcount == 0:
+        hand = conn.execute(
+            "SELECT hand_id, state_json FROM active_hands WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()
+        if hand is None:
             raise NotFoundError("no active hand")
+        state = json.loads(hand["state_json"])
+        state["pot"] = pot
+        conn.execute(
+            """
+            UPDATE active_hands
+            SET pot = ?, state_json = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE table_id = ?
+            """,
+            (pot, json.dumps(state, separators=(",", ":")), table_id),
+        )
+    return get_table_state(table_id)
+
+
+def complete_hand(table_id: str, payouts: dict[str, int]) -> dict:
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        hand = conn.execute(
+            "SELECT hand_id, pot FROM active_hands WHERE table_id = ?", (table_id,)
+        ).fetchone()
+        if hand is None:
+            raise NotFoundError("no active hand")
+
+        seats = conn.execute(
+            """
+            SELECT player_id, stack
+            FROM runtime_seats
+            WHERE table_id = ? AND status = 'seated'
+            ORDER BY seat_no
+            """,
+            (table_id,),
+        ).fetchall()
+        players = {row["player_id"]: row["stack"] for row in seats}
+
+        if any(value < 0 for value in payouts.values()):
+            raise ConflictError("payouts must be non-negative")
+        unknown = set(payouts) - set(players)
+        if unknown:
+            raise ConflictError("payout contains unknown player")
+        if sum(payouts.values()) != hand["pot"]:
+            raise ConflictError("payout total must equal pot")
+
+        new_stacks = {
+            player_id: stack + payouts.get(player_id, 0)
+            for player_id, stack in players.items()
+        }
+        for player_id, stack in new_stacks.items():
+            conn.execute(
+                """
+                UPDATE runtime_seats
+                SET stack = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE table_id = ? AND player_id = ?
+                """,
+                (stack, table_id, player_id),
+            )
+
+        conn.execute(
+            """
+            INSERT INTO hand_results(hand_id, table_id, pot, payouts_json, stacks_json)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                hand["hand_id"],
+                table_id,
+                hand["pot"],
+                json.dumps(payouts, separators=(",", ":")),
+                json.dumps(new_stacks, separators=(",", ":")),
+            ),
+        )
+        conn.execute("DELETE FROM active_hands WHERE table_id = ?", (table_id,))
         conn.execute(
             "UPDATE runtime_tables SET status = 'open', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (table_id,),
         )
     return get_table_state(table_id)
+
+
+def create_session(
+    user_id: str,
+    provider: str,
+    data: dict | None = None,
+    expires_at: str | None = None,
+) -> dict:
+    session_id = str(uuid.uuid4())
+    payload = data or {}
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO auth_sessions(session_id, user_id, provider, data_json, expires_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                user_id,
+                provider,
+                json.dumps(payload, separators=(",", ":")),
+                expires_at,
+            ),
+        )
+    return get_session(session_id)
+
+
+def get_session(session_id: str) -> dict:
+    conn = connect()
+    try:
+        row = conn.execute(
+            """
+            SELECT session_id, user_id, provider, data_json, expires_at, updated_at
+            FROM auth_sessions
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            raise NotFoundError("session not found")
+        return {
+            "session_id": row["session_id"],
+            "user_id": row["user_id"],
+            "provider": row["provider"],
+            "data": json.loads(row["data_json"]),
+            "expires_at": row["expires_at"],
+            "updated_at": row["updated_at"],
+        }
+    finally:
+        conn.close()
+
+
+def delete_session(session_id: str) -> None:
+    with transaction() as conn:
+        cur = conn.execute(
+            "DELETE FROM auth_sessions WHERE session_id = ?", (session_id,)
+        )
+        if cur.rowcount == 0:
+            raise NotFoundError("session not found")
 
 
 def get_table_state(table_id: str) -> dict:
