@@ -20,9 +20,11 @@ from .service import (
     get_table_state,
     join_table,
     latest_table_seq,
+    list_recovery_actions,
     list_table_events_since,
     list_tables,
     set_hand_pot,
+    operator_abort_hand,
     set_operator_status,
     stand,
     start_hand,
@@ -55,6 +57,10 @@ class PotRequest(BaseModel):
 
 class CompleteHandRequest(BaseModel):
     payouts: dict[str, int]
+
+
+class RecoveryRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class SessionCreate(BaseModel):
@@ -254,6 +260,34 @@ async def operator_resume_table(
     try:
         state = set_operator_status(table_id, "open")
         await manager.broadcast_state(table_id, "table_resumed")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/operator/tables/{table_id}/recovery-actions")
+def operator_recovery_actions(
+    table_id: str,
+    limit: int = 100,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> list[dict[str, Any]]:
+    _require_operator(x_operator_key)
+    try:
+        return list_recovery_actions(table_id, limit)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/operator/tables/{table_id}/abort-hand")
+async def operator_abort_active_hand(
+    table_id: str,
+    payload: RecoveryRequest,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = operator_abort_hand(table_id, payload.reason)
+        await manager.broadcast_state(table_id, "hand_recovered")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
