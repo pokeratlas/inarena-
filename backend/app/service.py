@@ -1073,6 +1073,11 @@ def get_session(session_id: str) -> dict:
         conn.close()
 
 
+def stand_with_session(table_id: str, session_id: str) -> dict:
+    session = get_session(session_id)
+    return stand(table_id, session["user_id"])
+
+
 def join_table_with_session(
     table_id: str,
     session_id: str,
