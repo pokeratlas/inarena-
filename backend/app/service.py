@@ -1135,6 +1135,7 @@ def join_cash_waitlist(table_id: str, session_id: str) -> dict:
             (table_id, user_id),
         )
         _assign_waitlist_reservations_in_conn(conn, table_id)
+        _enqueue_realtime_outbox(conn, table_id, "waitlist_joined")
     return get_cash_waitlist_status(table_id, session_id)
 
 
@@ -1170,6 +1171,7 @@ def leave_cash_waitlist(table_id: str, session_id: str) -> dict:
             (table_id, user_id),
         )
         _assign_waitlist_reservations_in_conn(conn, table_id)
+        _enqueue_realtime_outbox(conn, table_id, "waitlist_left")
     return get_cash_waitlist_status(table_id, session_id)
 
 
@@ -1316,6 +1318,7 @@ def claim_seat_reservation(
             """,
             (table_id, user_id),
         )
+        _enqueue_realtime_outbox(conn, table_id, "seat_reservation_claimed")
     return get_table_state(table_id)
 
 
@@ -1414,6 +1417,7 @@ def join_table(table_id: str, player_id: str, seat_no: int, stack: int) -> dict:
             (table_id,),
         )
         _assign_waitlist_reservations_in_conn(conn, table_id)
+        _enqueue_realtime_outbox(conn, table_id, "player_joined")
     return get_table_state(table_id)
 
 
@@ -1459,6 +1463,7 @@ def stand(table_id: str, player_id: str) -> dict:
             (table_id,),
         )
         _assign_waitlist_reservations_in_conn(conn, table_id)
+        _enqueue_realtime_outbox(conn, table_id, "player_stood")
     return get_table_state(table_id)
 
 
@@ -1670,6 +1675,7 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
             """,
             (button, table_id),
         )
+        _enqueue_realtime_outbox(conn, table_id, "hand_started")
     return get_table_state(table_id)
 
 
@@ -2741,6 +2747,7 @@ def stand_with_session(table_id: str, session_id: str) -> dict:
             (table_id, player_id),
         )
         _assign_waitlist_reservations_in_conn(conn, table_id)
+        _enqueue_realtime_outbox(conn, table_id, "player_stood")
     return get_table_state(table_id)
 
 
@@ -2833,6 +2840,7 @@ def join_table_with_session(
             """,
             (table_id, player_id, resolved_stack),
         )
+        _enqueue_realtime_outbox(conn, table_id, "player_joined")
     return get_table_state(table_id)
 
 
