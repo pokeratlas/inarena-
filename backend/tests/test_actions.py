@@ -50,7 +50,7 @@ def test_action_sequence_rejects_wrong_turn_and_stale_replay(client):
     wrong_turn = client.post(
         f"/api/v1/tables/{table_id}/action",
         json={
-            "player_id": "p1",
+            "player_id": "p2",
             "action": "check",
             "expected_action_no": 0,
         },
@@ -60,20 +60,20 @@ def test_action_sequence_rejects_wrong_turn_and_stale_replay(client):
     accepted = client.post(
         f"/api/v1/tables/{table_id}/action",
         json={
-            "player_id": "p2",
-            "action": "check",
+            "player_id": "p1",
+            "action": "call",
             "expected_action_no": 0,
         },
     )
     assert accepted.status_code == 200
     state = accepted.json()
     assert state["active_hand"]["state"]["action_no"] == 1
-    assert state["active_hand"]["action_seat"] == 1
+    assert state["active_hand"]["action_seat"] == 2
 
     stale = client.post(
         f"/api/v1/tables/{table_id}/action",
         json={
-            "player_id": "p1",
+            "player_id": "p2",
             "action": "check",
             "expected_action_no": 0,
         },
@@ -84,36 +84,62 @@ def test_action_sequence_rejects_wrong_turn_and_stale_replay(client):
 def test_bet_and_call_move_chips_atomically(client):
     table_id = started_table(client)
 
+    preflop_call = client.post(
+        f"/api/v1/tables/{table_id}/action",
+        json={
+            "player_id": "p1",
+            "action": "call",
+            "expected_action_no": 0,
+        },
+    )
+    assert preflop_call.status_code == 200
+    after_call = preflop_call.json()
+    stacks = {s["player_id"]: s["stack"] for s in after_call["seats"]}
+    assert stacks == {"p1": 900, "p2": 900}
+    assert after_call["active_hand"]["pot"] == 200
+
+    check = client.post(
+        f"/api/v1/tables/{table_id}/action",
+        json={
+            "player_id": "p2",
+            "action": "check",
+            "expected_action_no": 1,
+        },
+    )
+    assert check.status_code == 200
+    flop = check.json()
+    assert flop["active_hand"]["street"] == "flop"
+    assert flop["active_hand"]["action_seat"] == 2
+
     bet = client.post(
         f"/api/v1/tables/{table_id}/action",
         json={
             "player_id": "p2",
             "action": "bet",
             "amount": 100,
-            "expected_action_no": 0,
+            "expected_action_no": 2,
         },
     )
     assert bet.status_code == 200
     after_bet = bet.json()
     stacks = {s["player_id"]: s["stack"] for s in after_bet["seats"]}
-    assert stacks["p2"] == 900
-    assert after_bet["active_hand"]["pot"] == 100
-    assert after_bet["active_hand"]["state"]["current_bet"] == 100
+    assert stacks["p2"] == 800
+    assert after_bet["active_hand"]["pot"] == 300
 
     call = client.post(
         f"/api/v1/tables/{table_id}/action",
         json={
             "player_id": "p1",
             "action": "call",
-            "expected_action_no": 1,
+            "expected_action_no": 3,
         },
     )
     assert call.status_code == 200
-    after_call = call.json()
-    stacks = {s["player_id"]: s["stack"] for s in after_call["seats"]}
-    assert stacks == {"p1": 900, "p2": 900}
-    assert after_call["active_hand"]["pot"] == 200
-    assert after_call["active_hand"]["state"]["action_no"] == 2
+    after_flop = call.json()
+    stacks = {s["player_id"]: s["stack"] for s in after_flop["seats"]}
+    assert stacks == {"p1": 800, "p2": 800}
+    assert after_flop["active_hand"]["pot"] == 400
+    assert after_flop["active_hand"]["street"] == "turn"
 
 
 def test_action_emits_realtime_sequence(client):
@@ -126,7 +152,7 @@ def test_action_emits_realtime_sequence(client):
         response = client.post(
             f"/api/v1/tables/{table_id}/action",
             json={
-                "player_id": "p2",
+                "player_id": "p1",
                 "action": "fold",
                 "expected_action_no": 0,
             },
