@@ -72,6 +72,15 @@ def ensure_schema() -> None:
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS hand_results (
+                hand_id TEXT PRIMARY KEY,
+                table_id TEXT NOT NULL REFERENCES runtime_tables(id) ON DELETE CASCADE,
+                pot INTEGER NOT NULL CHECK(pot >= 0),
+                payouts_json TEXT NOT NULL,
+                stacks_json TEXT NOT NULL,
+                completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS auth_sessions (
                 session_id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
