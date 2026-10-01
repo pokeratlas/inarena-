@@ -418,3 +418,69 @@ def test_operator_recovery_emits_realtime_event(client):
         assert recovery_event["type"] == "table_event"
         assert recovery_event["event_type"] == "hand_recovered"
         assert recovery_event["seq"] > base_seq
+
+
+def test_operator_abort_refunds_all_hand_contributions(client):
+    test_client, db_path = client
+    table_id = create_started_table(test_client)
+    headers = {"X-Operator-Key": "test-operator-key"}
+
+    acted = test_client.post(
+        f"/api/v1/tables/{table_id}/action",
+        json={
+            "player_id": "p1",
+            "action": "call",
+            "expected_action_no": 0,
+        },
+    )
+    assert acted.status_code == 200
+    before_abort = {
+        seat["player_id"]: seat["stack"]
+        for seat in acted.json()["seats"]
+    }
+    assert before_abort == {"p1": 9900, "p2": 9900}
+    hand_id = acted.json()["active_hand"]["hand_id"]
+
+    paused = test_client.post(
+        f"/api/v1/operator/tables/{table_id}/pause",
+        headers=headers,
+    )
+    assert paused.status_code == 200
+
+    recovered = test_client.post(
+        f"/api/v1/operator/tables/{table_id}/abort-hand",
+        headers=headers,
+        json={"reason": "refund invariant test"},
+    )
+    assert recovered.status_code == 200
+    stacks = {
+        seat["player_id"]: seat["stack"]
+        for seat in recovered.json()["seats"]
+    }
+    assert stacks == {"p1": 10000, "p2": 10000}
+    assert recovered.json()["active_hand"] is None
+
+    audit = test_client.get(
+        f"/api/v1/operator/tables/{table_id}/recovery-actions",
+        headers=headers,
+    )
+    assert audit.status_code == 200
+    details = audit.json()[0]["details"]
+    assert details["refunds"] == {"p1": 100, "p2": 100}
+    assert details["refunded_total"] == 200
+    assert details["pot"] == 200
+
+    conn = sqlite3.connect(db_path)
+    try:
+        private_count = conn.execute(
+            "SELECT COUNT(*) FROM hand_private_cards WHERE hand_id = ?",
+            (hand_id,),
+        ).fetchone()[0]
+        secret_count = conn.execute(
+            "SELECT COUNT(*) FROM hand_secrets WHERE hand_id = ?",
+            (hand_id,),
+        ).fetchone()[0]
+        assert private_count == 0
+        assert secret_count == 0
+    finally:
+        conn.close()
