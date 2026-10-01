@@ -357,11 +357,11 @@ def submit_player_action(
         folded = set(state.get("folded", []))
         acted = set(state.get("acted", []))
         current_bet = int(state.get("current_bet", 0))
+        min_raise = int(state.get("min_raise", state.get("big_blind", 1)))
         player_street = int(street_contributions.get(player_id, 0))
         total_contribution = int(contributions.get(player_id, 0))
         stack = int(seat["stack"])
         paid = 0
-        aggressive = False
 
         if action == "fold":
             folded.add(player_id)
@@ -385,9 +385,23 @@ def submit_player_action(
             paid = target - player_street
             if paid <= 0 or paid > stack:
                 raise ConflictError("insufficient stack for action")
+
+            raise_size = target - current_bet
+            is_all_in = paid == stack
+            if current_bet == 0:
+                full_raise = target >= min_raise
+            else:
+                full_raise = raise_size >= min_raise
+
+            if not full_raise and not is_all_in:
+                raise ConflictError("raise is below minimum")
+
             current_bet = target
-            aggressive = True
-            acted = {player_id}
+            if full_raise:
+                min_raise = target if state.get("current_bet", 0) == 0 else raise_size
+                acted = {player_id}
+            else:
+                acted.add(player_id)
 
         new_stack = stack
         if paid:
@@ -466,6 +480,7 @@ def submit_player_action(
                         street = "river"
 
                     current_bet = 0
+                    min_raise = int(state.get("big_blind", min_raise))
                     street_contributions = {
                         row["player_id"]: 0 for row in participants
                     }
@@ -496,6 +511,7 @@ def submit_player_action(
                 "action_seat": next_seat,
                 "action_no": next_action_no,
                 "current_bet": current_bet,
+                "min_raise": min_raise,
                 "contributions": contributions,
                 "street_contributions": street_contributions,
                 "acted": sorted(acted),
