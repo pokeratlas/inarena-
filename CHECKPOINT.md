@@ -124,3 +124,19 @@ The connected Vercel integration currently exposes no accessible Vercel team/acc
 - readiness checks
 - observability
 - persistent backend hosting
+
+
+## Operator Reports quality gate
+Verified:
+- operator-authenticated JSON exports
+- stable UTF-8 CSV exports
+- table ledger report
+- tournament results report
+- tournament registrations report
+- operator audit report
+- deterministic row ordering
+- compact JSON serialization for nested details
+- invalid export formats return 400
+
+Latest operator-report backend CI: PASS.
+Latest frontend CI: PASS.
