@@ -34,6 +34,7 @@ from .service import (
     set_operator_status,
     settle_showdown,
     stand,
+    stand_with_session,
     start_hand,
     submit_player_action,
     submit_player_action_with_session,
@@ -180,6 +181,7 @@ def api_list_tables() -> list[dict[str, Any]]:
 
 @app.post("/api/v1/tables", status_code=201)
 def api_create_table(payload: TableCreate) -> dict[str, Any]:
+    _require_legacy_api()
     return create_table(payload.name)
 
 
@@ -236,8 +238,24 @@ async def api_join(table_id: str, payload: JoinRequest) -> dict[str, Any]:
         raise _http_error(exc) from exc
 
 
+@app.post("/api/v1/tables/{table_id}/stand-auth")
+async def api_stand_authenticated(
+    table_id: str,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        state = stand_with_session(table_id, x_session_id)
+        await manager.broadcast_state(table_id, "player_stood")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
 @app.post("/api/v1/tables/{table_id}/stand")
 async def api_stand(table_id: str, payload: StandRequest) -> dict[str, Any]:
+    _require_legacy_api()
     try:
         state = stand(table_id, payload.player_id)
         await manager.broadcast_state(table_id, "player_stood")
@@ -248,6 +266,7 @@ async def api_stand(table_id: str, payload: StandRequest) -> dict[str, Any]:
 
 @app.post("/api/v1/tables/{table_id}/start-hand")
 async def api_start_hand(table_id: str, payload: StartHandRequest) -> dict[str, Any]:
+    _require_legacy_api()
     try:
         state = start_hand(table_id, payload.button_seat)
         await manager.broadcast_state(table_id, "hand_started")
@@ -364,6 +383,30 @@ def api_delete_session(session_id: str) -> Response:
     try:
         delete_session(session_id)
         return Response(status_code=204)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/operator/tables", status_code=201)
+def operator_create_table(
+    payload: TableCreate,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    return create_table(payload.name)
+
+
+@app.post("/api/v1/operator/tables/{table_id}/start-hand")
+async def operator_start_hand(
+    table_id: str,
+    payload: StartHandRequest,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    try:
+        state = start_hand(table_id, payload.button_seat)
+        await manager.broadcast_state(table_id, "hand_started")
+        return state
     except Exception as exc:
         raise _http_error(exc) from exc
 
