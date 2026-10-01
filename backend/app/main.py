@@ -44,6 +44,7 @@ from .service import (
     set_blind_schedule_status,
     resolve_expired_action,
     set_operator_status,
+    set_tournament_window,
     settle_showdown,
     stand,
     stand_with_session,
