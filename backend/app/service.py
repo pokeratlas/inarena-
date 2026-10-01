@@ -5,6 +5,7 @@ import os
 import secrets
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from .db import connect, transaction
 from .poker import evaluate_seven
@@ -24,6 +25,154 @@ def _action_timeout_seconds() -> int:
         return max(5, min(int(raw), 300))
     except ValueError:
         return 30
+
+
+def _session_ttl_seconds() -> int:
+    raw = os.getenv("INARENA_SESSION_TTL_SECONDS", "604800")
+    try:
+        return max(300, min(int(raw), 2592000))
+    except ValueError:
+        return 604800
+
+
+def _utc_iso_after(seconds: int) -> str:
+    return (
+        datetime.now(timezone.utc) + timedelta(seconds=seconds)
+    ).isoformat().replace("+00:00", "Z")
+
+
+def _parse_iso_utc(value: str) -> datetime:
+    normalized = value.replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _normalize_blind_schedule(schedule: list[dict]) -> list[dict]:
+    normalized: list[dict] = []
+    for level in schedule:
+        sb = int(level.get("small_blind", 0))
+        bb = int(level.get("big_blind", 0))
+        duration = int(level.get("duration_seconds", 0))
+        if sb <= 0 or bb <= sb or duration <= 0:
+            raise ConflictError("invalid blind schedule level")
+        normalized.append(
+            {
+                "small_blind": sb,
+                "big_blind": bb,
+                "duration_seconds": duration,
+            }
+        )
+    if not normalized:
+        raise ConflictError("blind schedule cannot be empty")
+    return normalized
+
+
+def configure_table(
+    table_id: str,
+    table_mode: str,
+    starting_stack: int,
+    small_blind: int,
+    big_blind: int,
+    blind_schedule: list[dict] | None = None,
+) -> dict:
+    if table_mode not in {"cash", "tournament"}:
+        raise ConflictError("table_mode must be cash or tournament")
+    if starting_stack <= 0:
+        raise ConflictError("starting_stack must be positive")
+    if small_blind <= 0 or big_blind <= small_blind:
+        raise ConflictError("invalid blind level")
+
+    schedule: list[dict] = []
+    if table_mode == "tournament":
+        schedule = _normalize_blind_schedule(blind_schedule or [])
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        active = conn.execute(
+            "SELECT 1 FROM active_hands WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()
+        if active:
+            raise ConflictError("cannot configure table during an active hand")
+
+        conn.execute(
+            """
+            UPDATE runtime_tables
+            SET table_mode = ?,
+                starting_stack = ?,
+                small_blind = ?,
+                big_blind = ?,
+                blind_schedule_json = ?,
+                blind_level_index = 0,
+                blind_level_started_at = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                table_mode,
+                starting_stack,
+                small_blind,
+                big_blind,
+                json.dumps(schedule, separators=(",", ":")),
+                int(time.time()) if table_mode == "tournament" else None,
+                table_id,
+            ),
+        )
+    return get_table_state(table_id)
+
+
+def _advance_blind_schedule_if_due(conn, table_id: str) -> None:
+    row = conn.execute(
+        """
+        SELECT table_mode, blind_schedule_json, blind_level_index,
+               blind_level_started_at
+        FROM runtime_tables
+        WHERE id = ?
+        """,
+        (table_id,),
+    ).fetchone()
+    if row is None or row["table_mode"] != "tournament":
+        return
+
+    schedule = json.loads(row["blind_schedule_json"] or "[]")
+    if not schedule:
+        return
+
+    index = min(int(row["blind_level_index"] or 0), len(schedule) - 1)
+    started_at = int(row["blind_level_started_at"] or int(time.time()))
+    now = int(time.time())
+
+    changed = False
+    while index < len(schedule) - 1:
+        duration = int(schedule[index]["duration_seconds"])
+        if now - started_at < duration:
+            break
+        started_at += duration
+        index += 1
+        changed = True
+
+    if changed:
+        level = schedule[index]
+        conn.execute(
+            """
+            UPDATE runtime_tables
+            SET small_blind = ?,
+                big_blind = ?,
+                blind_level_index = ?,
+                blind_level_started_at = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                int(level["small_blind"]),
+                int(level["big_blind"]),
+                index,
+                started_at,
+                table_id,
+            ),
+        )
 
 
 def set_blind_level(table_id: str, small_blind: int, big_blind: int) -> dict:
@@ -129,9 +278,12 @@ def stand(table_id: str, player_id: str) -> dict:
 def start_hand(table_id: str, button_seat: int | None = None) -> dict:
     with transaction() as conn:
         _require_table(conn, table_id)
+        _advance_blind_schedule_if_due(conn, table_id)
         table = conn.execute(
             """
-            SELECT small_blind, big_blind, last_button_seat
+            SELECT small_blind, big_blind, last_button_seat,
+                   table_mode, starting_stack, blind_level_index,
+                   blind_level_started_at
             FROM runtime_tables
             WHERE id = ?
             """,
@@ -242,6 +394,9 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
             "big_blind_seat": bb_row["seat_no"],
             "small_blind": small_blind,
             "big_blind": big_blind,
+            "table_mode": table["table_mode"],
+            "blind_level_index": int(table["blind_level_index"] or 0),
+            "blind_level_started_at": table["blind_level_started_at"],
             "action_seat": action,
             "action_no": 0,
             "current_bet": max(sb_paid, bb_paid),
@@ -624,6 +779,55 @@ def submit_player_action(
     ):
         return settle_showdown(table_id)
     return result
+
+
+def resolve_expired_action(
+    table_id: str,
+    now_epoch: int | None = None,
+) -> dict:
+    state = get_table_state(table_id)
+    hand = state.get("active_hand")
+    if hand is None:
+        raise NotFoundError("no active hand")
+
+    hand_state = hand["state"]
+    deadline = hand_state.get("action_deadline_epoch")
+    if deadline is None:
+        raise ConflictError("hand has no action deadline")
+
+    now = int(time.time()) if now_epoch is None else int(now_epoch)
+    if now < int(deadline):
+        raise ConflictError("action deadline has not expired")
+
+    action_seat = hand.get("action_seat")
+    if action_seat is None:
+        raise ConflictError("no player action is pending")
+
+    seat = next(
+        (
+            item
+            for item in state["seats"]
+            if int(item["seat_no"]) == int(action_seat)
+        ),
+        None,
+    )
+    if seat is None:
+        raise ConflictError("acting seat is unavailable")
+
+    player_id = seat["player_id"]
+    street_contributions = dict(
+        hand_state.get("street_contributions", {})
+    )
+    current_bet = int(hand_state.get("current_bet", 0))
+    player_street = int(street_contributions.get(player_id, 0))
+    action = "check" if player_street == current_bet else "fold"
+
+    return submit_player_action(
+        table_id,
+        player_id,
+        action,
+        int(hand_state.get("action_no", 0)),
+    )
 
 
 def submit_player_action_with_session(
@@ -1031,6 +1235,7 @@ def create_session(
 ) -> dict:
     session_id = str(uuid.uuid4())
     payload = data or {}
+    resolved_expiry = expires_at or _utc_iso_after(_session_ttl_seconds())
     with transaction() as conn:
         conn.execute(
             """
@@ -1042,7 +1247,7 @@ def create_session(
                 user_id,
                 provider,
                 json.dumps(payload, separators=(",", ":")),
-                expires_at,
+                resolved_expiry,
             ),
         )
     return get_session(session_id)
@@ -1061,6 +1266,9 @@ def get_session(session_id: str) -> dict:
         ).fetchone()
         if row is None:
             raise NotFoundError("session not found")
+        if row["expires_at"]:
+            if _parse_iso_utc(row["expires_at"]) <= datetime.now(timezone.utc):
+                raise ConflictError("session expired")
         return {
             "session_id": row["session_id"],
             "user_id": row["user_id"],
@@ -1116,6 +1324,21 @@ def get_player_table_view(table_id: str, session_id: str) -> dict:
         return view
     finally:
         conn.close()
+
+
+def refresh_session(session_id: str) -> dict:
+    current = get_session(session_id)
+    new_expiry = _utc_iso_after(_session_ttl_seconds())
+    with transaction() as conn:
+        conn.execute(
+            """
+            UPDATE auth_sessions
+            SET expires_at = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE session_id = ?
+            """,
+            (new_expiry, session_id),
+        )
+    return get_session(session_id)
 
 
 def delete_session(session_id: str) -> None:
@@ -1251,13 +1474,56 @@ def list_player_hand_history(
         conn.close()
 
 
+def operator_dashboard() -> dict:
+    conn = connect()
+    try:
+        tables = conn.execute(
+            """
+            SELECT id, status, table_mode, small_blind, big_blind
+            FROM runtime_tables
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+        active_hands = conn.execute(
+            "SELECT COUNT(*) AS count FROM active_hands"
+        ).fetchone()["count"]
+        seated_players = conn.execute(
+            "SELECT COUNT(*) AS count FROM runtime_seats"
+        ).fetchone()["count"]
+        active_sessions = 0
+        now = datetime.now(timezone.utc)
+        for row in conn.execute(
+            "SELECT expires_at FROM auth_sessions"
+        ).fetchall():
+            if not row["expires_at"] or _parse_iso_utc(row["expires_at"]) > now:
+                active_sessions += 1
+
+        return {
+            "tables_total": len(tables),
+            "tables_playing": sum(1 for row in tables if row["status"] == "playing"),
+            "tables_paused": sum(1 for row in tables if row["status"] == "paused"),
+            "cash_tables": sum(1 for row in tables if row["table_mode"] == "cash"),
+            "tournament_tables": sum(
+                1 for row in tables if row["table_mode"] == "tournament"
+            ),
+            "active_hands": int(active_hands),
+            "seated_players": int(seated_players),
+            "active_sessions": int(active_sessions),
+            "tables": [dict(row) for row in tables],
+        }
+    finally:
+        conn.close()
+
+
 def get_table_state(table_id: str) -> dict:
     conn = connect()
     try:
         table = conn.execute(
             """
             SELECT id, name, status, small_blind, big_blind,
-                   last_button_seat, created_at, updated_at
+                   last_button_seat, table_mode, starting_stack,
+                   blind_schedule_json, blind_level_index,
+                   blind_level_started_at, created_at, updated_at
             FROM runtime_tables
             WHERE id = ?
             """,
@@ -1292,6 +1558,11 @@ def get_table_state(table_id: str) -> dict:
             "small_blind": table["small_blind"],
             "big_blind": table["big_blind"],
             "last_button_seat": table["last_button_seat"],
+            "table_mode": table["table_mode"],
+            "starting_stack": table["starting_stack"],
+            "blind_schedule": json.loads(table["blind_schedule_json"] or "[]"),
+            "blind_level_index": table["blind_level_index"],
+            "blind_level_started_at": table["blind_level_started_at"],
             "created_at": table["created_at"],
             "updated_at": table["updated_at"],
             "seats": [dict(row) for row in seats],
