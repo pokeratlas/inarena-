@@ -22,6 +22,7 @@ from .service import (
     delete_session,
     get_cash_waitlist_status,
     get_idempotent_result,
+    reserve_idempotency_command,
     get_player_balance,
     get_player_table_view,
     get_tournament_registration,
@@ -239,13 +240,19 @@ def _idempotent_replay(
     if not idempotency_key:
         return None
     user_id = get_session(session_id)["user_id"]
-    existing = get_idempotent_result(
+    command = reserve_idempotency_command(
         user_id,
         operation,
         idempotency_key,
         payload,
     )
-    return None if existing is None else existing["response"]
+    if command["state"] == "replay":
+        return command["response"]
+    if command["state"] == "in_progress":
+        raise ConflictError(
+            "idempotent command is already in progress or outcome is pending"
+        )
+    return None
 
 
 def _idempotent_store(
