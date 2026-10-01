@@ -2708,9 +2708,6 @@ def join_table_with_session(
             register_tournament(table_id, session_id)
         return join_table(table_id, player_id, seat_no, resolved_stack)
 
-    if os.getenv("INARENA_ENABLE_LEGACY_API") == "1":
-        return join_table(table_id, player_id, seat_no, resolved_stack)
-
     with transaction() as conn:
         _require_table(conn, table_id)
         _assign_waitlist_reservations_in_conn(conn, table_id)
@@ -2726,6 +2723,12 @@ def join_table_with_session(
             if reservation["user_id"] != player_id:
                 raise ConflictError("seat is reserved for another player")
             raise ConflictError("claim the active seat reservation")
+
+    if os.getenv("INARENA_ENABLE_LEGACY_API") == "1":
+        return join_table(table_id, player_id, seat_no, resolved_stack)
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
         if resolved_stack < int(row["cash_buyin_min"]) or resolved_stack > int(row["cash_buyin_max"]):
             raise ConflictError("cash buy-in outside configured range")
         balance = _ensure_player_balance(conn, player_id)
