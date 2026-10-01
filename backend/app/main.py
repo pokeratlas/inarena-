@@ -25,6 +25,7 @@ from .service import (
     latest_table_seq,
     list_hand_actions,
     list_hand_history,
+    list_player_hand_history,
     list_recovery_actions,
     list_table_events_since,
     list_tables,
@@ -504,6 +505,19 @@ async def operator_abort_active_hand(
         state = operator_abort_hand(table_id, payload.reason)
         await manager.broadcast_state(table_id, "hand_recovered")
         return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/me/hands")
+def api_my_hand_history(
+    limit: int = 50,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> list[dict[str, Any]]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        return list_player_hand_history(x_session_id, limit)
     except Exception as exc:
         raise _http_error(exc) from exc
 
