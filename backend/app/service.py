@@ -1255,7 +1255,12 @@ def get_table_state(table_id: str) -> dict:
     conn = connect()
     try:
         table = conn.execute(
-            "SELECT id, name, status, created_at, updated_at FROM runtime_tables WHERE id = ?",
+            """
+            SELECT id, name, status, small_blind, big_blind,
+                   last_button_seat, created_at, updated_at
+            FROM runtime_tables
+            WHERE id = ?
+            """,
             (table_id,),
         ).fetchone()
         if table is None:
@@ -1284,6 +1289,9 @@ def get_table_state(table_id: str) -> dict:
             "id": table["id"],
             "name": table["name"],
             "status": table["status"],
+            "small_blind": table["small_blind"],
+            "big_blind": table["big_blind"],
+            "last_button_seat": table["last_button_seat"],
             "created_at": table["created_at"],
             "updated_at": table["updated_at"],
             "seats": [dict(row) for row in seats],
