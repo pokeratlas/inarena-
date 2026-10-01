@@ -31,14 +31,19 @@ Implemented and verified in GitHub Actions:
 - main-pot / side-pot calculation by contribution tiers
 - tie splitting
 - automatic uncontested-pot settlement
+- automatic showdown settlement when no further action remains
 - NL Hold'em best-5-of-7 evaluator
-- showdown settlement
 - player-visible hand history and action log
+- authenticated per-player hand history with only that player's hole cards
 - monotonic realtime sequence log and reconnect replay
 - stale-action protection through expected_action_no
+- persisted action deadline / timeout metadata
 - Telegram Mini App initData verification
 - persistent authenticated sessions
-- authenticated seating, private view and player actions
+- authenticated seating, standing, private view and player actions
+- production hardening: legacy mutation endpoints hidden unless INARENA_ENABLE_LEGACY_API=1
+- operator-only table creation and hand start
+- operator blind-level controls between hands
 - protected operator pause/resume/recovery controls
 
 ## Verified frontend
@@ -46,6 +51,7 @@ Implemented and verified in GitHub Actions:
 - Concept 2 mobile shell
 - OFFLINE / ONLINE architecture
 - live ONLINE lobby
+- blind level visible in lobby
 - authenticated seating
 - fullscreen live table
 - public board and private hole cards
@@ -53,8 +59,11 @@ Implemented and verified in GitHub Actions:
 - 1/2 Pot / 3/4 Pot / Pot / All-in sizing
 - D / SB / BB seat badges
 - current blind structure and minimum raise display
-- last-hand result
-- player-visible action log
+- server-backed action countdown
+- reconnect state locks player actions until realtime is restored
+- pending-action status
+- public last-hand result and action log
+- authenticated private player history with own hole cards, board, payout and final stack
 - sequence-aware WebSocket reconnect/replay
 - Telegram Mini App identity bridge
 - reproducible frontend dependency pin
@@ -62,16 +71,18 @@ Implemented and verified in GitHub Actions:
 ## CI
 Latest backend CI: PASS.
 Latest frontend CI: PASS.
-Dedicated NLH rules regression tests: PASS.
-Side-pot, min-raise, button rotation, uncontested settlement and hand-history tests: PASS.
+Production hardening tests: PASS.
+Authenticated action/private-history tests: PASS.
+Blind-level and persisted timer tests: PASS.
+NLH rules, side-pot, showdown, reconnect and recovery regression tests: PASS.
 
 ## Current external blocker
 The connected Vercel integration currently returns no accessible Vercel team/account, so a public Vercel preview cannot be published from this session yet.
 
 ## Next
-1. Harden production API by disabling unauthenticated legacy join/action routes outside test mode.
-2. Add blind-level configuration/operator controls.
-3. Add automatic showdown trigger when no player decisions remain.
-4. Add reconnect-aware pending-action UX and action timer.
-5. Add richer hand-history details and per-player history view.
+1. Add server-side timeout resolution policy (check when legal, otherwise fold).
+2. Add automated blind schedule levels for tournament-style tables.
+3. Add table creation/configuration model for cash-style vs tournament-style play.
+4. Add player reconnect/session refresh and session expiry enforcement.
+5. Add richer operator dashboard data.
 6. Publish cloud preview when Vercel access becomes available.
