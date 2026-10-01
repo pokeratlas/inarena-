@@ -43,3 +43,22 @@ export interface PlayerTableView {
   player_id: string;
   hole_cards: string[];
 }
+
+
+export interface HandHistoryEntry {
+  hand_id: string;
+  pot: number;
+  payouts: Record<string, number>;
+  final_stacks: Record<string, number>;
+  completed_at: string;
+}
+
+export interface HandActionEntry {
+  action_no: number;
+  player_id: string;
+  seat_no: number;
+  action: string;
+  amount: number | null;
+  state: Record<string, unknown>;
+  created_at: string;
+}
