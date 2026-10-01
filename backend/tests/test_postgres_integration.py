@@ -61,3 +61,32 @@ def test_postgres_runtime_smoke(monkeypatch):
     state = service.get_table_state(table_id)
     assert state["id"] == table_id
     assert len(state["seats"]) == 2
+
+
+@pytest.mark.skipif(
+    not POSTGRES_URL,
+    reason="INARENA_TEST_POSTGRES_URL is not configured",
+)
+def test_postgres_production_readiness(monkeypatch):
+    monkeypatch.setenv("INARENA_DATABASE_URL", POSTGRES_URL)
+    monkeypatch.delenv("INARENA_DB_PATH", raising=False)
+    monkeypatch.setenv("INARENA_ENV", "production")
+    monkeypatch.setenv("INARENA_OPERATOR_KEY", "operator")
+    monkeypatch.delenv("INARENA_ENABLE_LEGACY_API", raising=False)
+
+    import app.db as db
+    import app.main as main
+
+    importlib.reload(db)
+    importlib.reload(main)
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(main.app) as client:
+        response = client.get("/ready")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "ready"
+        assert body["checks"]["database"] == "ok"
+        assert body["checks"]["schema_version"] == db.SCHEMA_VERSION
+        assert body["checks"]["environment"] == "production"
