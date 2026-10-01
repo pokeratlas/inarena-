@@ -2518,14 +2518,15 @@ def set_operator_status(table_id: str, status: str) -> dict:
 def append_table_event(table_id: str, event_type: str, payload: dict) -> dict:
     with transaction() as conn:
         _require_table(conn, table_id)
-        cur = conn.execute(
+        row = conn.execute(
             """
             INSERT INTO realtime_events(table_id, event_type, payload_json)
             VALUES (?, ?, ?)
+            RETURNING seq
             """,
             (table_id, event_type, json.dumps(payload, separators=(",", ":"))),
-        )
-        seq = int(cur.lastrowid)
+        ).fetchone()
+        seq = int(row["seq"])
         row = conn.execute(
             """
             SELECT seq, table_id, event_type, payload_json, created_at
@@ -3337,18 +3338,19 @@ def _get_table_state_with_conn(conn, table_id: str) -> dict:
 
 def _enqueue_realtime_outbox(conn, table_id: str, event_type: str) -> int:
     state = _get_table_state_with_conn(conn, table_id)
-    cur = conn.execute(
+    row = conn.execute(
         """
         INSERT INTO realtime_outbox(table_id, event_type, payload_json)
         VALUES (?, ?, ?)
+        RETURNING id
         """,
         (
             table_id,
             event_type,
             json.dumps(state, separators=(",", ":")),
         ),
-    )
-    return int(cur.lastrowid)
+    ).fetchone()
+    return int(row["id"])
 
 
 def dispatch_table_outbox(table_id: str, limit: int = 100) -> list[dict]:
@@ -3369,9 +3371,10 @@ def dispatch_table_outbox(table_id: str, limit: int = 100) -> list[dict]:
         for row in rows:
             conn.execute(
                 """
-                INSERT OR IGNORE INTO realtime_events(
+                INSERT INTO realtime_events(
                     table_id, event_type, payload_json, outbox_id
                 ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(outbox_id) DO NOTHING
                 """,
                 (
                     row["table_id"],
