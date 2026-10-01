@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   type AuthSession,
   authenticateTelegram,
+  getPlayerTableView,
+  joinAuthenticatedTable,
   listTables,
   submitPlayerAction,
 } from "./api";
@@ -76,9 +78,11 @@ function useTelegramSession() {
 function PlayerActions({
   table,
   playerId,
+  sessionId,
 }: {
   table: TableState;
   playerId: string | null;
+  sessionId: string | null;
 }) {
   const [amount, setAmount] = useState(0);
   const [pending, setPending] = useState(false);
@@ -90,7 +94,12 @@ function PlayerActions({
     [table.seats, playerId],
   );
 
-  if (!hand || !playerSeat || playerSeat.seat_no !== hand.action_seat) {
+  if (
+    !hand ||
+    !playerSeat ||
+    !sessionId ||
+    playerSeat.seat_no !== hand.action_seat
+  ) {
     return null;
   }
 
@@ -115,8 +124,7 @@ function PlayerActions({
     setPending(true);
     setActionError(null);
     try {
-      await submitPlayerAction(table.id, {
-        player_id: playerSeat.player_id,
+      await submitPlayerAction(table.id, sessionId, {
         action,
         expected_action_no: actionNo,
         ...(actionAmount === undefined ? {} : { amount: actionAmount }),
@@ -185,16 +193,42 @@ function PlayerActions({
 function OnlineTable({
   table,
   playerId,
+  sessionId,
   connected,
   lastSeq,
   onBack,
 }: {
   table: TableState;
   playerId: string | null;
+  sessionId: string | null;
   connected: boolean;
   lastSeq: number;
   onBack: () => void;
 }) {
+  const [holeCards, setHoleCards] = useState<string[]>([]);
+  const handId = table.active_hand?.hand_id ?? null;
+
+  useEffect(() => {
+    if (!sessionId || !handId) {
+      setHoleCards([]);
+      return;
+    }
+    let active = true;
+    getPlayerTableView(table.id, sessionId)
+      .then((view) => {
+        if (active) setHoleCards(view.hole_cards);
+      })
+      .catch(() => {
+        if (active) setHoleCards([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [table.id, sessionId, handId]);
+
+  const board =
+    (table.active_hand?.state.board as string[] | undefined) ?? [];
+
   return (
     <section className="table-screen" aria-label="Игровой стол">
       <header className="table-header">
@@ -218,6 +252,24 @@ function OnlineTable({
         ))}
       </div>
 
+      <div className="board-cards" aria-label="Общие карты">
+        {board.length === 0 ? (
+          <span className="card-placeholder">Board</span>
+        ) : (
+          board.map((card) => (
+            <span className="playing-card" key={card}>{card}</span>
+          ))
+        )}
+      </div>
+
+      {holeCards.length > 0 ? (
+        <div className="hole-cards" aria-label="Ваши карты">
+          {holeCards.map((card) => (
+            <span className="playing-card hero-card" key={card}>{card}</span>
+          ))}
+        </div>
+      ) : null}
+
       <div className="hand-status">
         <p>Статус: {table.status}</p>
         <p>
@@ -227,18 +279,23 @@ function OnlineTable({
         </p>
       </div>
 
-      <PlayerActions table={table} playerId={playerId} />
+      <PlayerActions
+        table={table}
+        playerId={playerId}
+        sessionId={sessionId}
+      />
     </section>
   );
 }
 
 function OnlineLobby({
-  playerId,
+  session,
   onTableScreenChange,
 }: {
-  playerId: string | null;
+  session: AuthSession | null;
   onTableScreenChange: (open: boolean) => void;
 }) {
+  const playerId = session?.user_id ?? null;
   const [tables, setTables] = useState<TableState[]>([]);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
@@ -272,6 +329,7 @@ function OnlineLobby({
         <OnlineTable
           table={realtime.state}
           playerId={playerId}
+          sessionId={session?.session_id ?? null}
           connected={realtime.connected}
           lastSeq={realtime.lastSeq}
           onBack={() => {
@@ -297,24 +355,71 @@ function OnlineLobby({
         {tables.length === 0 ? (
           <p>Активных столов пока нет.</p>
         ) : (
-          tables.map((table) => (
-            <button
-              className="lobby-card"
-              key={table.id}
-              type="button"
-              aria-pressed={selectedTableId === table.id}
-              onClick={() => {
-                setSelectedTableId(table.id);
-                setTableOpen(true);
-                onTableScreenChange(true);
-              }}
-            >
-              <strong>{table.name}</strong>
-              <span>
-                {table.status} · {table.seats.length} игроков
-              </span>
-            </button>
-          ))
+          tables.map((table) => {
+            const seated = table.seats.some(
+              (seat) => seat.player_id === playerId,
+            );
+            const occupied = new Set(table.seats.map((seat) => seat.seat_no));
+            const firstFreeSeat = Array.from(
+              { length: 9 },
+              (_, index) => index + 1,
+            ).find((seatNo) => !occupied.has(seatNo));
+
+            return (
+              <article className="lobby-card" key={table.id}>
+                <strong>{table.name}</strong>
+                <span>
+                  {table.status} · {table.seats.length} игроков
+                </span>
+                <div className="lobby-actions">
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() => {
+                      setSelectedTableId(table.id);
+                      setTableOpen(true);
+                      onTableScreenChange(true);
+                    }}
+                  >
+                    Открыть
+                  </button>
+                  {!seated && session && firstFreeSeat ? (
+                    <button
+                      className="action-button action-primary"
+                      type="button"
+                      onClick={() => {
+                        void joinAuthenticatedTable(
+                          table.id,
+                          session.session_id,
+                          firstFreeSeat,
+                          10000,
+                        )
+                          .then((updated) => {
+                            setTables((current) =>
+                              current.map((item) =>
+                                item.id === updated.id ? updated : item,
+                              ),
+                            );
+                            setSelectedTableId(table.id);
+                            setTableOpen(true);
+                            onTableScreenChange(true);
+                          })
+                          .catch((cause) =>
+                            setLoadingError(
+                              cause instanceof Error
+                                ? cause.message
+                                : "Unable to join table",
+                            ),
+                          );
+                      }}
+                    >
+                      Сесть · Seat {firstFreeSeat}
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })
         )}
       </section>
 
@@ -366,7 +471,7 @@ export default function App() {
             </p>
           ) : null}
           <OnlineLobby
-            playerId={telegram.session?.user_id ?? null}
+            session={telegram.session}
             onTableScreenChange={setTableScreenOpen}
           />
         </>
