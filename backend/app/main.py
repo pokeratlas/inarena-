@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 import asyncio
+import csv
+import io
+import json
 import os
 from typing import Any
 
@@ -50,6 +53,10 @@ from .service import (
     operator_adjust_balance,
     operator_dashboard,
     register_tournament,
+    report_operator_audit,
+    report_table_ledger,
+    report_tournament_registrations,
+    report_tournament_results,
     refresh_session,
     set_blind_schedule_status,
     resolve_expired_action,
@@ -277,6 +284,42 @@ def _idempotent_store(
         idempotency_key,
         payload,
         response,
+    )
+
+
+def _report_response(
+    rows: list[dict[str, Any]],
+    format: str,
+    fields: list[str],
+    filename: str,
+):
+    if format == "json":
+        return rows
+    if format != "csv":
+        raise HTTPException(status_code=400, detail="format must be json or csv")
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        serialized: dict[str, Any] = {}
+        for field in fields:
+            value = row.get(field)
+            if isinstance(value, (dict, list)):
+                value = json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            serialized[field] = value
+        writer.writerow(serialized)
+
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
     )
 
 
@@ -744,6 +787,114 @@ def operator_audit_log(
     _require_operator(x_operator_key)
     try:
         return list_operator_audit(table_id, limit)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/operator/reports/tables/{table_id}/ledger")
+def operator_report_ledger(
+    table_id: str,
+    format: str = "json",
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+):
+    _require_operator(x_operator_key)
+    try:
+        rows = report_table_ledger(table_id)
+        return _report_response(
+            rows,
+            format,
+            [
+                "table_id",
+                "player_id",
+                "entry_type",
+                "amount",
+                "details",
+                "created_at",
+            ],
+            f"inarena-ledger-{table_id}.csv",
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/operator/reports/tournaments/{table_id}/results")
+def operator_report_tournament_results(
+    table_id: str,
+    format: str = "json",
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+):
+    _require_operator(x_operator_key)
+    try:
+        rows = report_tournament_results(table_id)
+        return _report_response(
+            rows,
+            format,
+            [
+                "table_id",
+                "player_id",
+                "seat_no",
+                "finish_place",
+                "stack",
+                "rebuy_count",
+                "addon_used",
+                "eliminated_at",
+                "winner",
+                "finished_at",
+            ],
+            f"inarena-tournament-results-{table_id}.csv",
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/operator/reports/tournaments/{table_id}/registrations")
+def operator_report_tournament_registrations(
+    table_id: str,
+    format: str = "json",
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+):
+    _require_operator(x_operator_key)
+    try:
+        rows = report_tournament_registrations(table_id)
+        return _report_response(
+            rows,
+            format,
+            [
+                "table_id",
+                "user_id",
+                "status",
+                "registered_at",
+                "withdrawn_at",
+            ],
+            f"inarena-tournament-registrations-{table_id}.csv",
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/operator/reports/audit")
+def operator_report_audit(
+    table_id: str | None = None,
+    format: str = "json",
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+):
+    _require_operator(x_operator_key)
+    try:
+        rows = report_operator_audit(table_id)
+        return _report_response(
+            rows,
+            format,
+            ["id", "table_id", "action", "details", "created_at"],
+            "inarena-operator-audit.csv",
+        )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise _http_error(exc) from exc
 
