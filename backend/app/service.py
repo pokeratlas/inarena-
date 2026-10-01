@@ -1299,7 +1299,31 @@ def join_table_with_session(
     stack: int,
 ) -> dict:
     session = get_session(session_id)
-    return join_table(table_id, session["user_id"], seat_no, stack)
+    conn = connect()
+    try:
+        row = conn.execute(
+            """
+            SELECT table_mode, starting_stack
+            FROM runtime_tables
+            WHERE id = ?
+            """,
+            (table_id,),
+        ).fetchone()
+        if row is None:
+            raise NotFoundError("table not found")
+        resolved_stack = (
+            int(row["starting_stack"])
+            if row["table_mode"] == "tournament"
+            else stack
+        )
+    finally:
+        conn.close()
+    return join_table(
+        table_id,
+        session["user_id"],
+        seat_no,
+        resolved_stack,
+    )
 
 
 def get_player_table_view(table_id: str, session_id: str) -> dict:
