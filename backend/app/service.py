@@ -1339,6 +1339,7 @@ def join_table(table_id: str, player_id: str, seat_no: int, stack: int) -> dict:
             "UPDATE runtime_tables SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (table_id,),
         )
+        _assign_waitlist_reservations_in_conn(conn, table_id)
     return get_table_state(table_id)
 
 
