@@ -222,3 +222,76 @@ def test_session_expiry_refresh_and_dashboard(client):
     assert "active_sessions" in data
     assert data["active_sessions"] >= 1
     assert "tables" in data
+
+
+def test_tournament_authenticated_join_uses_configured_starting_stack(client):
+    test_client, _ = client
+    table_id = make_table(test_client)
+    headers = {"X-Operator-Key": "operator"}
+
+    configured = test_client.post(
+        f"/api/v1/operator/tables/{table_id}/configure",
+        headers=headers,
+        json={
+            "table_mode": "tournament",
+            "starting_stack": 7777,
+            "small_blind": 50,
+            "big_blind": 100,
+            "blind_schedule": [
+                {"small_blind": 50, "big_blind": 100, "duration_seconds": 60}
+            ],
+        },
+    )
+    assert configured.status_code == 200
+
+    session = test_client.post(
+        "/api/v1/sessions",
+        json={"user_id": "p77", "provider": "test", "data": {}},
+    ).json()
+
+    joined = test_client.post(
+        f"/api/v1/tables/{table_id}/join-auth",
+        headers={"X-Session-ID": session["session_id"]},
+        json={"seat_no": 3, "stack": 123},
+    )
+    assert joined.status_code == 200
+    seat = joined.json()["seats"][0]
+    assert seat["stack"] == 7777
+
+
+def test_websocket_loop_auto_resolves_expired_action(client):
+    test_client, db_path = client
+    table_id = make_table(test_client)
+    for player_id, seat_no in (("p1", 1), ("p2", 2)):
+        test_client.post(
+            f"/api/v1/tables/{table_id}/join",
+            json={"player_id": player_id, "seat_no": seat_no, "stack": 1000},
+        )
+    test_client.post(
+        f"/api/v1/tables/{table_id}/start-hand",
+        json={"button_seat": 1},
+    )
+
+    conn = sqlite3.connect(db_path)
+    try:
+        state = json.loads(
+            conn.execute(
+                "SELECT state_json FROM active_hands WHERE table_id = ?",
+                (table_id,),
+            ).fetchone()[0]
+        )
+        state["action_deadline_epoch"] = int(time.time()) - 1
+        conn.execute(
+            "UPDATE active_hands SET state_json = ? WHERE table_id = ?",
+            (json.dumps(state, separators=(",", ":")), table_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    with test_client.websocket_connect(f"/ws/tables/{table_id}") as socket:
+        snapshot = socket.receive_json()
+        assert snapshot["type"] == "table_snapshot"
+        event = socket.receive_json()
+        assert event["type"] == "table_event"
+        assert event["event_type"] == "action_timeout_resolved"
