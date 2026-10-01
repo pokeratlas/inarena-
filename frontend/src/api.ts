@@ -1,4 +1,4 @@
-import type { HandActionEntry, HandHistoryEntry, OperatorAuditEntry, OperatorDashboard, PlayerBalance, PlayerHandHistoryEntry, PlayerTableView, TableEvent, TableState } from "./types";
+import type { HandActionEntry, HandHistoryEntry, OperatorAuditEntry, OperatorDashboard, PlayerBalance, PlayerHandHistoryEntry, PlayerTableView, TableEvent, TableState, TournamentRegistration } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
@@ -359,5 +359,73 @@ export async function getOperatorAudit(
     headers: { "X-Operator-Key": operatorKey },
   });
   if (!response.ok) throw new Error("Unable to load operator audit");
+  return response.json();
+}
+
+
+export async function getTournamentRegistration(
+  tableId: string,
+  sessionId: string,
+): Promise<TournamentRegistration> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tournaments/${tableId}/registration`,
+    { headers: { "X-Session-ID": sessionId } },
+  );
+  if (!response.ok) throw new Error("Unable to load tournament registration");
+  return response.json();
+}
+
+export async function registerTournament(
+  tableId: string,
+  sessionId: string,
+): Promise<TournamentRegistration> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tournaments/${tableId}/register`,
+    {
+      method: "POST",
+      headers: { "X-Session-ID": sessionId },
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Tournament registration failed");
+  }
+  return response.json();
+}
+
+export async function unregisterTournament(
+  tableId: string,
+  sessionId: string,
+): Promise<TournamentRegistration> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tournaments/${tableId}/register`,
+    {
+      method: "DELETE",
+      headers: { "X-Session-ID": sessionId },
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Unable to withdraw registration");
+  }
+  return response.json();
+}
+
+export async function operatorTournamentCommand(
+  tableId: string,
+  command: "open-registration" | "start" | "cancel",
+  operatorKey: string,
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/operator/tables/${tableId}/tournament/${command}`,
+    {
+      method: "POST",
+      headers: { "X-Operator-Key": operatorKey },
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Tournament command failed");
+  }
   return response.json();
 }
