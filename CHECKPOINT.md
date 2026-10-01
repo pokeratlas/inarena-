@@ -140,3 +140,26 @@ Verified:
 
 Latest operator-report backend CI: PASS.
 Latest frontend CI: PASS.
+
+
+## Production runtime milestone
+Verified:
+- operator JSON/CSV report contracts
+- backend production Docker image
+- writable persistent container data path for the current SQLite baseline
+- /health liveness endpoint
+- /ready readiness endpoint
+- production environment validation
+- production readiness rejects legacy API mode
+- Docker image build is now a backend CI gate
+
+Latest backend CI including Docker build: PASS.
+Latest frontend CI: PASS.
+
+## PostgreSQL migration status
+Production data-layer architecture is specified in:
+- docs/PRODUCTION_DATA_LAYER.md
+- docs/RUNTIME_ENVIRONMENT.md
+
+The current runtime is still SQLite-backed.
+Do not classify database readiness as production-complete until PostgreSQL integration tests pass.
