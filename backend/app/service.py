@@ -1185,6 +1185,72 @@ def list_hand_actions(table_id: str, hand_id: str) -> list[dict]:
         conn.close()
 
 
+def list_player_hand_history(
+    session_id: str,
+    limit: int = 50,
+) -> list[dict]:
+    session = get_session(session_id)
+    player_id = session["user_id"]
+
+    conn = connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                hr.hand_id,
+                hr.table_id,
+                hr.pot,
+                hr.payouts_json,
+                hr.stacks_json,
+                hr.completed_at,
+                hpc.cards_json
+            FROM hand_results AS hr
+            JOIN hand_private_cards AS hpc
+              ON hpc.hand_id = hr.hand_id
+             AND hpc.table_id = hr.table_id
+            WHERE hpc.player_id = ?
+            ORDER BY hr.completed_at DESC, hr.hand_id DESC
+            LIMIT ?
+            """,
+            (player_id, max(1, min(limit, 200))),
+        ).fetchall()
+
+        history: list[dict] = []
+        for row in rows:
+            payouts = json.loads(row["payouts_json"])
+            stacks = json.loads(row["stacks_json"])
+            last_action = conn.execute(
+                """
+                SELECT state_json
+                FROM hand_actions
+                WHERE hand_id = ? AND table_id = ?
+                ORDER BY action_no DESC
+                LIMIT 1
+                """,
+                (row["hand_id"], row["table_id"]),
+            ).fetchone()
+            final_state = (
+                json.loads(last_action["state_json"])
+                if last_action is not None
+                else {}
+            )
+            history.append(
+                {
+                    "hand_id": row["hand_id"],
+                    "table_id": row["table_id"],
+                    "pot": row["pot"],
+                    "hole_cards": json.loads(row["cards_json"]),
+                    "board": list(final_state.get("board", [])),
+                    "payout": int(payouts.get(player_id, 0)),
+                    "final_stack": int(stacks.get(player_id, 0)),
+                    "completed_at": row["completed_at"],
+                }
+            )
+        return history
+    finally:
+        conn.close()
+
+
 def get_table_state(table_id: str) -> dict:
     conn = connect()
     try:
