@@ -14,36 +14,26 @@ The project is cloud-first and does not depend on a specific Windows PC.
 
 ## Verified backend
 Implemented and verified in GitHub Actions:
-- SQLite runtime tables, seats and active hands
-- schema migrations through v6
-- persisted hand results, auth sessions, hand actions and recovery audit
-- secure private-card storage separated from public realtime state
-- persisted shuffled deck per active hand
-- server-side hole cards and public board
-- preflop → flop → turn → river progression
-- small blind / big blind posting
-- heads-up blind rules
-- dealer button rotation between completed hands
-- correct preflop and postflop action order
-- minimum raise enforcement
-- legal short all-in handling
-- contribution ledger
-- main-pot / side-pot calculation by contribution tiers
-- tie splitting
-- automatic uncontested-pot settlement
-- automatic showdown settlement when no further action remains
-- NL Hold'em best-5-of-7 evaluator
-- player-visible hand history and action log
-- authenticated per-player hand history with only that player's hole cards
-- monotonic realtime sequence log and reconnect replay
-- stale-action protection through expected_action_no
-- persisted action deadline / timeout metadata
-- Telegram Mini App initData verification
-- persistent authenticated sessions
+- schema migrations through v7
+- cash / tournament table modes
+- configurable starting stack
+- persisted tournament blind schedules
+- automatic blind-level advancement between hands
+- operator table configuration API
+- operator dashboard summary
+- server-side action deadline policy
+- automatic timeout resolution over realtime loop: check when legal, otherwise fold
+- manual protected timeout-resolution endpoint retained for recovery
+- session TTL enforcement with 401 on expiry
+- authenticated session restore / refresh
+- tournament joins force configured starting stack
+- production legacy API hardening
+- operator-only table lifecycle
 - authenticated seating, standing, private view and player actions
-- production hardening: legacy mutation endpoints hidden unless INARENA_ENABLE_LEGACY_API=1
-- operator-only table creation and hand start
-- operator blind-level controls between hands
+- full NL Hold'em blind/button/action-order/min-raise/side-pot/showdown ruleset
+- automatic uncontested and showdown settlement
+- public and authenticated per-player hand history
+- monotonic realtime sequence log and reconnect replay
 - protected operator pause/resume/recovery controls
 
 ## Verified frontend
@@ -51,38 +41,38 @@ Implemented and verified in GitHub Actions:
 - Concept 2 mobile shell
 - OFFLINE / ONLINE architecture
 - live ONLINE lobby
-- blind level visible in lobby
-- authenticated seating
+- cash/tournament mode visible in lobby
+- configured blind level visible in lobby
+- tournament seating uses configured starting stack
+- Telegram session restore from local storage
+- session validation and refresh on app reopen
 - fullscreen live table
-- public board and private hole cards
+- D / SB / BB badges
+- board and authenticated private hole cards
+- action timer driven by persisted server deadline
+- reconnect locks actions until realtime is restored
 - Fold / Check / Call / Bet / Raise
 - 1/2 Pot / 3/4 Pot / Pot / All-in sizing
-- D / SB / BB seat badges
-- current blind structure and minimum raise display
-- server-backed action countdown
-- reconnect state locks player actions until realtime is restored
-- pending-action status
-- public last-hand result and action log
-- authenticated private player history with own hole cards, board, payout and final stack
-- sequence-aware WebSocket reconnect/replay
-- Telegram Mini App identity bridge
-- reproducible frontend dependency pin
+- public last-hand action log
+- authenticated private hand history
 
 ## CI
 Latest backend CI: PASS.
 Latest frontend CI: PASS.
-Production hardening tests: PASS.
-Authenticated action/private-history tests: PASS.
-Blind-level and persisted timer tests: PASS.
-NLH rules, side-pot, showdown, reconnect and recovery regression tests: PASS.
+Automatic timeout resolution test: PASS.
+Tournament blind schedule test: PASS.
+Session expiry/refresh test: PASS.
+Tournament starting-stack enforcement test: PASS.
+Operator dashboard test: PASS.
+Existing NLH rules/reconnect/security regression suite: PASS.
 
 ## Current external blocker
 The connected Vercel integration currently returns no accessible Vercel team/account, so a public Vercel preview cannot be published from this session yet.
 
 ## Next
-1. Add server-side timeout resolution policy (check when legal, otherwise fold).
-2. Add automated blind schedule levels for tournament-style tables.
-3. Add table creation/configuration model for cash-style vs tournament-style play.
-4. Add player reconnect/session refresh and session expiry enforcement.
-5. Add richer operator dashboard data.
-6. Publish cloud preview when Vercel access becomes available.
+1. Add automatic tournament elimination / active-player status.
+2. Add rebuy/add-on policy model for tournament mode.
+3. Add cash-table buy-in min/max and leave-table stack accounting.
+4. Add operator controls for schedule start/pause/reset.
+5. Add operator dashboard frontend.
+6. Add production deployment configuration and preview when Vercel access is available.
