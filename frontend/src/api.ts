@@ -1,4 +1,4 @@
-import type { TableEvent, TableState } from "./types";
+import type { PlayerTableView, TableEvent, TableState } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
@@ -59,20 +59,62 @@ export async function authenticateTelegram(
   return response.json();
 }
 
+
+export async function getPlayerTableView(
+  tableId: string,
+  sessionId: string,
+): Promise<PlayerTableView> {
+  const response = await fetch(`${API_BASE}/api/v1/tables/${tableId}/view`, {
+    headers: { "X-Session-ID": sessionId },
+  });
+  if (!response.ok) throw new Error("Unable to load private table view");
+  return response.json();
+}
+
+export async function joinAuthenticatedTable(
+  tableId: string,
+  sessionId: string,
+  seatNo: number,
+  stack: number,
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tables/${tableId}/join-auth`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Session-ID": sessionId,
+      },
+      body: JSON.stringify({ seat_no: seatNo, stack }),
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Unable to join table");
+  }
+  return response.json();
+}
+
 export async function submitPlayerAction(
   tableId: string,
+  sessionId: string,
   payload: {
-    player_id: string;
     action: "fold" | "check" | "call" | "bet" | "raise";
     expected_action_no: number;
     amount?: number;
   },
 ): Promise<TableState> {
-  const response = await fetch(`${API_BASE}/api/v1/tables/${tableId}/action`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  const response = await fetch(
+    `${API_BASE}/api/v1/tables/${tableId}/action-auth`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Session-ID": sessionId,
+      },
+      body: JSON.stringify(payload),
+    },
+  );
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(body?.detail ?? "Player action rejected");
