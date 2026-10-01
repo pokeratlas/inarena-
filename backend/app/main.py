@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from .db import ensure_schema
@@ -11,15 +11,19 @@ from .service import (
     ConflictError,
     NotFoundError,
     complete_hand,
+    create_session,
     create_table,
+    delete_session,
+    get_session,
     get_table_state,
     join_table,
     list_tables,
+    set_hand_pot,
     stand,
     start_hand,
 )
 
-app = FastAPI(title="INARENA API", version="0.1.0")
+app = FastAPI(title="INARENA API", version="0.2.0")
 
 
 class TableCreate(BaseModel):
@@ -38,6 +42,21 @@ class StandRequest(BaseModel):
 
 class StartHandRequest(BaseModel):
     button_seat: int | None = Field(default=None, ge=1, le=9)
+
+
+class PotRequest(BaseModel):
+    pot: int = Field(ge=0)
+
+
+class CompleteHandRequest(BaseModel):
+    payouts: dict[str, int]
+
+
+class SessionCreate(BaseModel):
+    user_id: str = Field(min_length=1)
+    provider: str = Field(min_length=1)
+    data: dict[str, Any] = Field(default_factory=dict)
+    expires_at: str | None = None
 
 
 class ConnectionManager:
@@ -134,12 +153,51 @@ async def api_start_hand(table_id: str, payload: StartHandRequest) -> dict[str, 
         raise _http_error(exc) from exc
 
 
-@app.post("/api/v1/tables/{table_id}/complete-hand")
-async def api_complete_hand(table_id: str) -> dict[str, Any]:
+@app.post("/api/v1/tables/{table_id}/pot")
+async def api_set_pot(table_id: str, payload: PotRequest) -> dict[str, Any]:
     try:
-        state = complete_hand(table_id)
+        state = set_hand_pot(table_id, payload.pot)
         await manager.broadcast_state(table_id)
         return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tables/{table_id}/complete-hand")
+async def api_complete_hand(
+    table_id: str, payload: CompleteHandRequest
+) -> dict[str, Any]:
+    try:
+        state = complete_hand(table_id, payload.payouts)
+        await manager.broadcast_state(table_id)
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/sessions", status_code=201)
+def api_create_session(payload: SessionCreate) -> dict[str, Any]:
+    return create_session(
+        payload.user_id,
+        payload.provider,
+        payload.data,
+        payload.expires_at,
+    )
+
+
+@app.get("/api/v1/sessions/{session_id}")
+def api_get_session(session_id: str) -> dict[str, Any]:
+    try:
+        return get_session(session_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.delete("/api/v1/sessions/{session_id}", status_code=204)
+def api_delete_session(session_id: str) -> Response:
+    try:
+        delete_session(session_id)
+        return Response(status_code=204)
     except Exception as exc:
         raise _http_error(exc) from exc
 
