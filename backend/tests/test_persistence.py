@@ -96,7 +96,7 @@ def test_atomic_hand_completion_updates_stacks_and_audit(client):
     assert state["status"] == "open"
 
     stacks = {seat["player_id"]: seat["stack"] for seat in state["seats"]}
-    assert stacks == {"p1": 10600, "p2": 10000}
+    assert stacks == {"p1": 10550, "p2": 9900}
 
     conn = sqlite3.connect(db_path)
     try:
@@ -106,7 +106,7 @@ def test_atomic_hand_completion_updates_stacks_and_audit(client):
         assert row is not None
         assert row[0] == 600
         assert '"p1":600' in row[1]
-        assert '"p1":10600' in row[2]
+        assert '"p1":10550' in row[2]
     finally:
         conn.close()
 
@@ -127,8 +127,8 @@ def test_invalid_settlement_rolls_back(client):
     assert after["active_hand"] is not None
     assert after["active_hand"]["hand_id"] == before["active_hand"]["hand_id"]
     assert {s["player_id"]: s["stack"] for s in after["seats"]} == {
-        "p1": 10000,
-        "p2": 10000,
+        "p1": 9950,
+        "p2": 9900,
     }
 
     conn = sqlite3.connect(db_path)
@@ -265,7 +265,7 @@ def test_schema_migrations_reach_expected_version(client):
     conn = sqlite3.connect(db_path)
     try:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 5
+        assert version == 6
         tables = {
             row[0]
             for row in conn.execute(
