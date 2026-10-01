@@ -50,10 +50,7 @@ def test_production_readiness_requires_database_url_and_operator_key(
 
 
 def test_production_readiness_rejects_legacy_api(tmp_path, monkeypatch):
-    monkeypatch.setenv(
-        "INARENA_DATABASE_URL",
-        "postgresql://placeholder/inarena",
-    )
+    monkeypatch.delenv("INARENA_DATABASE_URL", raising=False)
     monkeypatch.setenv("INARENA_OPERATOR_KEY", "operator")
     monkeypatch.setenv("INARENA_ENABLE_LEGACY_API", "1")
 
