@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from .db import ensure_schema
 from .service import (
     ConflictError,
+    append_table_event,
     NotFoundError,
     complete_hand,
     create_session,
@@ -18,6 +19,8 @@ from .service import (
     get_session,
     get_table_state,
     join_table,
+    latest_table_seq,
+    list_table_events_since,
     list_tables,
     set_hand_pot,
     set_operator_status,
@@ -74,12 +77,20 @@ class ConnectionManager:
         if not self.connections[table_id]:
             self.connections.pop(table_id, None)
 
-    async def broadcast_state(self, table_id: str) -> None:
+    async def broadcast_state(self, table_id: str, event_type: str = "table_state") -> None:
         state = get_table_state(table_id)
+        event = append_table_event(table_id, event_type, state)
         dead: list[WebSocket] = []
         for socket in self.connections.get(table_id, set()):
             try:
-                await socket.send_json({"type": "table_state", "data": state})
+                await socket.send_json(
+                    {
+                        "type": "table_event",
+                        "seq": event["seq"],
+                        "event_type": event["event_type"],
+                        "data": state,
+                    }
+                )
             except Exception:
                 dead.append(socket)
         for socket in dead:
@@ -137,7 +148,7 @@ def api_get_table(table_id: str) -> dict[str, Any]:
 async def api_join(table_id: str, payload: JoinRequest) -> dict[str, Any]:
     try:
         state = join_table(table_id, payload.player_id, payload.seat_no, payload.stack)
-        await manager.broadcast_state(table_id)
+        await manager.broadcast_state(table_id, "player_joined")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
@@ -147,7 +158,7 @@ async def api_join(table_id: str, payload: JoinRequest) -> dict[str, Any]:
 async def api_stand(table_id: str, payload: StandRequest) -> dict[str, Any]:
     try:
         state = stand(table_id, payload.player_id)
-        await manager.broadcast_state(table_id)
+        await manager.broadcast_state(table_id, "player_stood")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
@@ -157,7 +168,7 @@ async def api_stand(table_id: str, payload: StandRequest) -> dict[str, Any]:
 async def api_start_hand(table_id: str, payload: StartHandRequest) -> dict[str, Any]:
     try:
         state = start_hand(table_id, payload.button_seat)
-        await manager.broadcast_state(table_id)
+        await manager.broadcast_state(table_id, "hand_started")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
@@ -167,7 +178,7 @@ async def api_start_hand(table_id: str, payload: StartHandRequest) -> dict[str, 
 async def api_set_pot(table_id: str, payload: PotRequest) -> dict[str, Any]:
     try:
         state = set_hand_pot(table_id, payload.pot)
-        await manager.broadcast_state(table_id)
+        await manager.broadcast_state(table_id, "pot_updated")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
@@ -179,7 +190,7 @@ async def api_complete_hand(
 ) -> dict[str, Any]:
     try:
         state = complete_hand(table_id, payload.payouts)
-        await manager.broadcast_state(table_id)
+        await manager.broadcast_state(table_id, "hand_completed")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
@@ -228,7 +239,7 @@ async def operator_pause_table(
     _require_operator(x_operator_key)
     try:
         state = set_operator_status(table_id, "paused")
-        await manager.broadcast_state(table_id)
+        await manager.broadcast_state(table_id, "table_paused")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
@@ -242,8 +253,20 @@ async def operator_resume_table(
     _require_operator(x_operator_key)
     try:
         state = set_operator_status(table_id, "open")
-        await manager.broadcast_state(table_id)
+        await manager.broadcast_state(table_id, "table_resumed")
         return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/tables/{table_id}/events")
+def api_table_events(
+    table_id: str,
+    after_seq: int = 0,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    try:
+        return list_table_events_since(table_id, after_seq, limit)
     except Exception as exc:
         raise _http_error(exc) from exc
 
@@ -259,13 +282,28 @@ async def table_socket(websocket: WebSocket, table_id: str) -> None:
     await manager.connect(table_id, websocket)
     try:
         await websocket.send_json(
-            {"type": "table_state", "data": get_table_state(table_id)}
+            {
+                "type": "table_snapshot",
+                "seq": latest_table_seq(table_id),
+                "data": get_table_state(table_id),
+            }
         )
         while True:
             message = await websocket.receive_json()
             if message.get("type") == "sync":
-                await websocket.send_json(
-                    {"type": "table_state", "data": get_table_state(table_id)}
-                )
+                after_seq = int(message.get("after_seq", 0) or 0)
+                events = list_table_events_since(table_id, after_seq, 500)
+                if events:
+                    await websocket.send_json(
+                        {"type": "table_replay", "events": events}
+                    )
+                else:
+                    await websocket.send_json(
+                        {
+                            "type": "table_snapshot",
+                            "seq": latest_table_seq(table_id),
+                            "data": get_table_state(table_id),
+                        }
+                    )
     except WebSocketDisconnect:
         manager.disconnect(table_id, websocket)
