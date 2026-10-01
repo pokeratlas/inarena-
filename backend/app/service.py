@@ -598,66 +598,79 @@ def set_hand_pot(table_id: str, pot: int) -> dict:
     return get_table_state(table_id)
 
 
+def _settle_payouts_in_conn(
+    conn,
+    table_id: str,
+    hand,
+    payouts: dict[str, int],
+) -> None:
+    seats = conn.execute(
+        """
+        SELECT player_id, stack
+        FROM runtime_seats
+        WHERE table_id = ? AND status = 'seated'
+        ORDER BY seat_no
+        """,
+        (table_id,),
+    ).fetchall()
+    players = {row["player_id"]: int(row["stack"]) for row in seats}
+
+    if any(value < 0 for value in payouts.values()):
+        raise ConflictError("payouts must be non-negative")
+    unknown = set(payouts) - set(players)
+    if unknown:
+        raise ConflictError("payout contains unknown player")
+    if sum(payouts.values()) != int(hand["pot"]):
+        raise ConflictError("payout total must equal pot")
+
+    new_stacks = {
+        player_id: stack + int(payouts.get(player_id, 0))
+        for player_id, stack in players.items()
+    }
+    for player_id, stack in new_stacks.items():
+        conn.execute(
+            """
+            UPDATE runtime_seats
+            SET stack = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE table_id = ? AND player_id = ?
+            """,
+            (stack, table_id, player_id),
+        )
+
+    conn.execute(
+        """
+        INSERT INTO hand_results(hand_id, table_id, pot, payouts_json, stacks_json)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            hand["hand_id"],
+            table_id,
+            int(hand["pot"]),
+            json.dumps(payouts, separators=(",", ":")),
+            json.dumps(new_stacks, separators=(",", ":")),
+        ),
+    )
+    conn.execute("DELETE FROM active_hands WHERE table_id = ?", (table_id,))
+    conn.execute(
+        """
+        UPDATE runtime_tables
+        SET status = 'open', updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (table_id,),
+    )
+
+
 def complete_hand(table_id: str, payouts: dict[str, int]) -> dict:
     with transaction() as conn:
         _require_table(conn, table_id)
         hand = conn.execute(
-            "SELECT hand_id, pot FROM active_hands WHERE table_id = ?", (table_id,)
+            "SELECT hand_id, pot FROM active_hands WHERE table_id = ?",
+            (table_id,),
         ).fetchone()
         if hand is None:
             raise NotFoundError("no active hand")
-
-        seats = conn.execute(
-            """
-            SELECT player_id, stack
-            FROM runtime_seats
-            WHERE table_id = ? AND status = 'seated'
-            ORDER BY seat_no
-            """,
-            (table_id,),
-        ).fetchall()
-        players = {row["player_id"]: row["stack"] for row in seats}
-
-        if any(value < 0 for value in payouts.values()):
-            raise ConflictError("payouts must be non-negative")
-        unknown = set(payouts) - set(players)
-        if unknown:
-            raise ConflictError("payout contains unknown player")
-        if sum(payouts.values()) != hand["pot"]:
-            raise ConflictError("payout total must equal pot")
-
-        new_stacks = {
-            player_id: stack + payouts.get(player_id, 0)
-            for player_id, stack in players.items()
-        }
-        for player_id, stack in new_stacks.items():
-            conn.execute(
-                """
-                UPDATE runtime_seats
-                SET stack = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE table_id = ? AND player_id = ?
-                """,
-                (stack, table_id, player_id),
-            )
-
-        conn.execute(
-            """
-            INSERT INTO hand_results(hand_id, table_id, pot, payouts_json, stacks_json)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                hand["hand_id"],
-                table_id,
-                hand["pot"],
-                json.dumps(payouts, separators=(",", ":")),
-                json.dumps(new_stacks, separators=(",", ":")),
-            ),
-        )
-        conn.execute("DELETE FROM active_hands WHERE table_id = ?", (table_id,))
-        conn.execute(
-            "UPDATE runtime_tables SET status = 'open', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (table_id,),
-        )
+        _settle_payouts_in_conn(conn, table_id, hand, payouts)
     return get_table_state(table_id)
 
 
@@ -683,9 +696,10 @@ def calculate_showdown_payouts(table_id: str) -> dict[str, int]:
         pot = int(hand["pot"])
         folded = set(state.get("folded", []))
         board = list(state.get("board", []))
+        all_players = list(state.get("players", []))
         participants = [
             player
-            for player in state.get("players", [])
+            for player in all_players
             if player["player_id"] not in folded
         ]
         if not participants:
@@ -695,7 +709,7 @@ def calculate_showdown_payouts(table_id: str) -> dict[str, int]:
         if uncontested:
             return {
                 player["player_id"]: pot if player["player_id"] == uncontested else 0
-                for player in state.get("players", [])
+                for player in all_players
             }
 
         if len(board) != 5:
@@ -720,17 +734,50 @@ def calculate_showdown_payouts(table_id: str) -> dict[str, int]:
             )
             seat_order[player["player_id"]] = int(player["seat_no"])
 
-        best = max(scores.values())
-        winners = sorted(
-            (player_id for player_id, score in scores.items() if score == best),
-            key=lambda player_id: seat_order[player_id],
-        )
-        share, remainder = divmod(pot, len(winners))
-        payouts = {
-            player["player_id"]: 0 for player in state.get("players", [])
+        contributions = {
+            player_id: int(value)
+            for player_id, value in dict(
+                state.get("contributions", {})
+            ).items()
+            if int(value) > 0
         }
-        for index, winner in enumerate(winners):
-            payouts[winner] = share + (1 if index < remainder else 0)
+        if sum(contributions.values()) != pot:
+            raise ConflictError("contribution ledger does not match pot")
+
+        payouts = {player["player_id"]: 0 for player in all_players}
+        levels = sorted(set(contributions.values()))
+        previous = 0
+        for level in levels:
+            contributors = [
+                player_id
+                for player_id, amount in contributions.items()
+                if amount >= level
+            ]
+            side_pot = (level - previous) * len(contributors)
+            previous = level
+            eligible = [
+                player_id
+                for player_id in contributors
+                if player_id not in folded
+            ]
+            if not eligible:
+                continue
+
+            best = max(scores[player_id] for player_id in eligible)
+            winners = sorted(
+                (
+                    player_id
+                    for player_id in eligible
+                    if scores[player_id] == best
+                ),
+                key=lambda player_id: seat_order[player_id],
+            )
+            share, remainder = divmod(side_pot, len(winners))
+            for index, winner in enumerate(winners):
+                payouts[winner] += share + (1 if index < remainder else 0)
+
+        if sum(payouts.values()) != pot:
+            raise ConflictError("side-pot payout calculation mismatch")
         return payouts
     finally:
         conn.close()
