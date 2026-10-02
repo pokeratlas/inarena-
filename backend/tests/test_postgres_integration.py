@@ -100,3 +100,36 @@ def test_postgres_production_readiness(monkeypatch):
         assert body["checks"]["database"] == "ok"
         assert body["checks"]["schema_version"] == db.SCHEMA_VERSION
         assert body["checks"]["environment"] == "production"
+
+
+
+@pytest.mark.skipif(
+    not POSTGRES_URL,
+    reason="INARENA_TEST_POSTGRES_URL is not configured",
+)
+def test_postgres_schema_metadata_upgrades(monkeypatch):
+    monkeypatch.setenv("INARENA_DATABASE_URL", POSTGRES_URL)
+    monkeypatch.delenv("INARENA_DB_PATH", raising=False)
+    monkeypatch.setenv("INARENA_ENV", "test")
+
+    import app.db as db
+
+    importlib.reload(db)
+    db.init_database_pool()
+    try:
+        db.ensure_schema()
+        conn = db.connect()
+        try:
+            conn.execute_raw(
+                "UPDATE inarena_schema_meta SET version = %s",
+                (db.SCHEMA_VERSION - 1,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        assert db.schema_version() == db.SCHEMA_VERSION - 1
+        db.ensure_schema()
+        assert db.schema_version() == db.SCHEMA_VERSION
+    finally:
+        db.close_database_pool()
