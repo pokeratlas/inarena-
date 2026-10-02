@@ -25,6 +25,7 @@ from .telegram_auth import TelegramAuthError, validate_init_data
 from .service import (
     AuthenticationError,
     ConflictError,
+    build_mutation_receipt_context,
     append_table_event,
     NotFoundError,
     complete_hand,
@@ -66,6 +67,7 @@ from .service import (
     report_table_ledger,
     report_tournament_registrations,
     report_tournament_results,
+    recover_mutation_receipt,
     refresh_session,
     set_blind_schedule_status,
     resolve_expired_action,
@@ -293,10 +295,42 @@ def _idempotent_replay(
     if command["state"] == "replay":
         return command["response"]
     if command["state"] == "in_progress":
+        receipt = recover_mutation_receipt(
+            user_id,
+            operation,
+            idempotency_key,
+            payload,
+        )
+        if receipt is not None:
+            store_idempotent_result(
+                user_id,
+                operation,
+                idempotency_key,
+                payload,
+                receipt,
+            )
+            return receipt
         raise ConflictError(
             "idempotent command is already in progress or outcome is pending"
         )
     return None
+
+
+def _mutation_receipt_context(
+    session_id: str,
+    operation: str,
+    idempotency_key: str | None,
+    payload: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not idempotency_key:
+        return None
+    user_id = get_session(session_id)["user_id"]
+    return build_mutation_receipt_context(
+        user_id,
+        operation,
+        idempotency_key,
+        payload,
+    )
 
 
 def _idempotent_store(
@@ -525,11 +559,18 @@ async def api_claim_reservation(
         )
         if replay is not None:
             return replay
+        receipt_context = _mutation_receipt_context(
+            x_session_id,
+            "reservation-claim",
+            idempotency_key,
+            request_payload,
+        )
         state = claim_seat_reservation(
             table_id,
             x_session_id,
             payload.reservation_id,
             payload.stack,
+            receipt_context,
         )
         _idempotent_store(
             x_session_id,
@@ -567,11 +608,18 @@ async def api_join_authenticated(
         )
         if replay is not None:
             return replay
+        receipt_context = _mutation_receipt_context(
+            x_session_id,
+            "join-auth",
+            idempotency_key,
+            request_payload,
+        )
         state = join_table_with_session(
             table_id,
             x_session_id,
             payload.seat_no,
             payload.stack,
+            receipt_context,
         )
         _idempotent_store(
             x_session_id,
@@ -628,7 +676,17 @@ async def api_stand_authenticated(
         )
         if replay is not None:
             return replay
-        state = stand_with_session(table_id, x_session_id)
+        receipt_context = _mutation_receipt_context(
+            x_session_id,
+            "stand-auth",
+            idempotency_key,
+            request_payload,
+        )
+        state = stand_with_session(
+            table_id,
+            x_session_id,
+            receipt_context,
+        )
         _idempotent_store(
             x_session_id,
             "stand-auth",
@@ -688,12 +746,19 @@ async def api_authenticated_player_action(
         )
         if replay is not None:
             return replay
+        receipt_context = _mutation_receipt_context(
+            x_session_id,
+            "action-auth",
+            idempotency_key,
+            request_payload,
+        )
         state = submit_player_action_with_session(
             table_id,
             x_session_id,
             payload.action,
             payload.expected_action_no,
             payload.amount,
+            receipt_context,
         )
         _idempotent_store(
             x_session_id,
