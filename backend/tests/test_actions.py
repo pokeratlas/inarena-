@@ -161,5 +161,5 @@ def test_action_emits_realtime_sequence(client):
 
         event = socket.receive_json()
         assert event["type"] == "table_event"
-        assert event["event_type"] == "player_action"
+        assert event["event_type"] == "hand_completed"
         assert event["seq"] > base_seq
