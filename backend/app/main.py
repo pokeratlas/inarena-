@@ -20,6 +20,7 @@ from .db import (
     postgres_pool_stats,
     schema_version,
 )
+from .realtime_coordination import RedisRealtimeCoordinator
 from .telegram_auth import TelegramAuthError, validate_init_data
 from .service import (
     AuthenticationError,
@@ -196,6 +197,7 @@ class SessionCreate(BaseModel):
 class ConnectionManager:
     def __init__(self) -> None:
         self.connections: dict[str, set[WebSocket]] = defaultdict(set)
+        self.coordinator = RedisRealtimeCoordinator()
 
     async def connect(self, table_id: str, websocket: WebSocket) -> None:
         await websocket.accept()
@@ -206,42 +208,57 @@ class ConnectionManager:
         if not self.connections[table_id]:
             self.connections.pop(table_id, None)
 
-    async def broadcast_state(self, table_id: str, event_type: str = "table_state") -> None:
+    async def _send_local_event(self, event: dict[str, Any]) -> None:
+        table_id = str(event["table_id"])
+        state = event["payload"]
+        dead: list[WebSocket] = []
+        for socket in self.connections.get(table_id, set()):
+            try:
+                await socket.send_json(
+                    {
+                        "type": "table_event",
+                        "seq": event["seq"],
+                        "event_type": event["event_type"],
+                        "data": state,
+                    }
+                )
+            except Exception:
+                dead.append(socket)
+        for socket in dead:
+            self.disconnect(table_id, socket)
+
+    async def receive_remote_event(self, event: dict[str, Any]) -> None:
+        await self._send_local_event(event)
+
+    async def broadcast_state(
+        self,
+        table_id: str,
+        event_type: str = "table_state",
+    ) -> None:
         events = dispatch_table_outbox(table_id)
         if not events:
             state = get_table_state(table_id)
             events = [append_table_event(table_id, event_type, state)]
 
-        dead: list[WebSocket] = []
         for event in events:
-            state = event["payload"]
-            for socket in self.connections.get(table_id, set()):
-                try:
-                    await socket.send_json(
-                        {
-                            "type": "table_event",
-                            "seq": event["seq"],
-                            "event_type": event["event_type"],
-                            "data": state,
-                        }
-                    )
-                except Exception:
-                    dead.append(socket)
-        for socket in dead:
-            self.disconnect(table_id, socket)
+            await self._send_local_event(event)
+            await self.coordinator.publish(event)
 
 
 manager = ConnectionManager()
 
 
 @app.on_event("startup")
-def startup() -> None:
+async def startup() -> None:
     init_database_pool()
     ensure_schema()
+    if manager.coordinator.configured:
+        await manager.coordinator.start(manager.receive_remote_event)
 
 
 @app.on_event("shutdown")
-def shutdown() -> None:
+async def shutdown() -> None:
+    await manager.coordinator.stop()
     close_database_pool()
 
 
@@ -359,6 +376,7 @@ def ready() -> dict[str, Any]:
         "database": "unknown",
         "database_backend": database_backend(),
         "database_pool": None,
+        "realtime_coordination": manager.coordinator.diagnostics(),
         "schema_version": None,
         "environment": environment,
     }
@@ -397,6 +415,7 @@ def ready() -> dict[str, Any]:
                 detail={"status": "not_ready", "checks": checks},
             )
 
+    checks["realtime_coordination"] = manager.coordinator.diagnostics()
     checks["configuration"] = {"status": "ok"}
     return {"status": "ready", "checks": checks}
 
