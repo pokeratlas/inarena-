@@ -36,7 +36,7 @@ import type { AppMode, CashWaitlistStatus, HandActionEntry, HandHistoryEntry, Op
 import { useTableRealtime } from "./useTableRealtime";
 
 const offlineTabs = ["Главная", "Турниры", "Профиль"];
-const onlineTabs = ["Лобби", "Игры", "Профиль"];
+const onlineTabs = ["Лобби", "Игра", "Профиль"];
 
 function ModeSwitch({
   mode,
@@ -1303,7 +1303,7 @@ export default function App() {
 
   if (operatorMode) {
     return (
-      <div className="app-shell">
+      <div className="app-shell operator-shell">
         <div className="brand-row">
           <span className="brand-mark">INARENA</span>
           <span className="status-dot" aria-hidden="true" />
