@@ -328,3 +328,64 @@ Acceptance criteria:
 6. Operator endpoints have stricter rate limits than public reads.
 7. Rate-limit storage may use Redis but failure must not corrupt game state.
 8. Security controls have regression tests and staging smoke coverage.
+
+
+## Production security perimeter + scoped operator sessions milestone
+Verified through schema v15:
+- explicit CORS allowlist;
+- canonical `INARENA_ALLOWED_ORIGINS` production contract;
+- request-body size ceiling;
+- per-IP/per-session HTTP rate limiting;
+- WebSocket origin validation and connection-rate protection;
+- standard security response headers;
+- Redis-backed rate limiting with safe local fallback;
+- local fallback counters reset on application shutdown;
+- short-lived scoped operator sessions;
+- operator scopes:
+  - operator:read
+  - operator:write
+  - operator:reports
+  - operator:recovery
+- bootstrap operator key only issues scoped sessions in staging/production;
+- direct bootstrap-key access to normal operator APIs is rejected in staging/production;
+- frontend operator dashboard exchanges bootstrap key once and stores only the scoped token in sessionStorage;
+- staging smoke uses scoped operator authentication.
+
+CI:
+- backend suite: PASS;
+- PostgreSQL integration: PASS;
+- Redis integration: PASS;
+- staging smoke: PASS;
+- frontend: PASS.
+
+## Quality engineering milestone
+Verified:
+- Hypothesis property-based evaluator tests;
+- 300 randomized five/seven-card evaluator cases;
+- integration property test for heads-up chip conservation across valid cash buy-ins;
+- Playwright browser E2E gate;
+- player OFFLINE/ONLINE shell browser smoke: PASS;
+- protected operator route browser smoke: PASS;
+- k6 staging load baseline gate;
+- k6 HTTP health/readiness/table-read workload: PASS;
+- k6 WebSocket connect/reconnect workload: PASS;
+- initial load thresholds:
+  - HTTP error rate < 1%;
+  - HTTP p95 < 500 ms;
+  - checks > 99%;
+- production container build: PASS.
+
+## Current stage
+The project has moved from production hardening into closed-beta readiness.
+
+## Next bounded feature
+### Full-stack browser E2E + release candidate gate
+Acceptance criteria:
+1. Browser E2E runs against a real INARENA backend, not only mocked/static UI.
+2. Operator bootstrap login exchanges for a scoped session and loads dashboard data.
+3. Operator can create a table through real API and browser refresh keeps scoped session.
+4. Authenticated player browser session restores from persisted localStorage session.
+5. Player can open ONLINE lobby and see a backend-created table.
+6. Cash buy-in/join path is covered end-to-end without duplicate ledger movement.
+7. Browser reconnect preserves table state.
+8. A release-candidate checklist is generated and CI status is part of the gate.
