@@ -9,7 +9,7 @@ def load_app(tmp_path, monkeypatch, environment="development", origins=""):
     monkeypatch.setenv("INARENA_DB_PATH", str(tmp_path / "security.sqlite3"))
     monkeypatch.setenv("INARENA_ENV", environment)
     monkeypatch.setenv("INARENA_OPERATOR_KEY", "operator")
-    monkeypatch.setenv("INARENA_CORS_ORIGINS", origins)
+    monkeypatch.setenv("INARENA_ALLOWED_ORIGINS", origins)
     monkeypatch.delenv("INARENA_DATABASE_URL", raising=False)
     monkeypatch.delenv("INARENA_REDIS_URL", raising=False)
     monkeypatch.delenv("INARENA_ENABLE_LEGACY_API", raising=False)
@@ -91,4 +91,4 @@ def test_production_readiness_rejects_wildcard_cors(tmp_path, monkeypatch):
         assert response.status_code == 503
         detail = response.json()["detail"]
         invalid = detail["checks"]["configuration"]["missing_or_invalid"]
-        assert "INARENA_CORS_ORIGINS must not contain wildcard" in invalid
+        assert "INARENA_ALLOWED_ORIGINS must not contain wildcard" in invalid
