@@ -12,7 +12,6 @@ from fastapi import FastAPI, Header, HTTPException, Request, Response, WebSocket
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.cors import CORSMiddleware
 
 from .db import (
     close_database_pool,
@@ -29,7 +28,6 @@ from .observability import (
     release_metadata,
 )
 from .realtime_coordination import RedisRealtimeCoordinator
-from .security import SecurityHeadersMiddleware, cors_origins
 from .security import (
     RateLimitMiddleware,
     RequestBodyLimitMiddleware,
