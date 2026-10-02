@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-POSTGRES_SCHEMA_VERSION = 13
+POSTGRES_SCHEMA_VERSION = 14
 
 POSTGRES_SCHEMA_STATEMENTS = [
     """
@@ -283,5 +283,20 @@ POSTGRES_SCHEMA_STATEMENTS = [
     """
     CREATE INDEX IF NOT EXISTS idx_realtime_outbox_pending
     ON realtime_outbox(table_id, dispatched_at, id)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS mutation_receipts (
+        user_id TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        request_fingerprint TEXT NOT NULL,
+        response_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
+        PRIMARY KEY (user_id, operation, idempotency_key)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mutation_receipts_created_at
+    ON mutation_receipts(created_at)
     """,
 ]
