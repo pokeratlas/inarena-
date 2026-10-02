@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import FastAPI, Header, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from .db import (
     close_database_pool,
@@ -27,6 +28,17 @@ from .observability import (
     release_metadata,
 )
 from .realtime_coordination import RedisRealtimeCoordinator
+from .security import (
+    RateLimitMiddleware,
+    RequestBodyLimitMiddleware,
+    SecurityHeadersMiddleware,
+    allowed_origins,
+    cors_configuration,
+    origin_allowed,
+    rate_limit_for_category,
+    rate_limit_identity,
+    rate_limiter,
+)
 from .telegram_auth import TelegramAuthError, validate_init_data
 from .service import (
     AuthenticationError,
@@ -96,6 +108,10 @@ from .service import (
 
 logger = configure_logging()
 app = FastAPI(title="INARENA API", version="0.2.0")
+app.add_middleware(CORSMiddleware, **cors_configuration())
+app.add_middleware(RequestBodyLimitMiddleware)
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestObservabilityMiddleware)
 
 
@@ -315,6 +331,7 @@ async def startup() -> None:
 @app.on_event("shutdown")
 async def shutdown() -> None:
     await manager.coordinator.stop()
+    await rate_limiter.close()
     close_database_pool()
 
 
@@ -498,6 +515,11 @@ def ready() -> dict[str, Any]:
             missing.append("INARENA_OPERATOR_KEY")
         if os.getenv("INARENA_ENABLE_LEGACY_API") == "1":
             missing.append("INARENA_ENABLE_LEGACY_API must be disabled")
+        origins = allowed_origins()
+        if not origins:
+            missing.append("INARENA_ALLOWED_ORIGINS")
+        if "*" in origins:
+            missing.append("INARENA_ALLOWED_ORIGINS must not contain wildcard")
         if missing:
             checks["configuration"] = {
                 "status": "error",
@@ -1553,6 +1575,28 @@ def api_table_events(
 
 @app.websocket("/ws/tables/{table_id}")
 async def table_socket(websocket: WebSocket, table_id: str) -> None:
+    origin = websocket.headers.get("origin")
+    if not origin_allowed(origin):
+        await websocket.close(code=4403)
+        return
+
+    headers = {
+        key.lower(): value
+        for key, value in websocket.headers.items()
+    }
+    identity = rate_limit_identity(
+        scope=websocket.scope,
+        headers=headers,
+    )
+    allowed, _retry_after = await rate_limiter.allow(
+        "websocket",
+        identity,
+        rate_limit_for_category("websocket"),
+    )
+    if not allowed:
+        await websocket.close(code=4429)
+        return
+
     try:
         get_table_state(table_id)
     except NotFoundError:
