@@ -30,6 +30,15 @@ test("operator bootstrap exchanges for scoped session and dashboard loads", asyn
 
   await page.reload();
   await expect(page.getByText("Tables", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Выйти" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Выйти" }).click();
+  await expect(page.getByPlaceholder("Bootstrap operator key")).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      sessionStorage.getItem("inarena_operator_token"),
+    ),
+  ).toBeNull();
 });
 
 test("authenticated player restores session and joins a real cash table", async ({
@@ -90,4 +99,24 @@ test("authenticated player restores session and joins a real cash table", async 
   expect(state.seats).toHaveLength(1);
   expect(state.seats[0].player_id).toBe("e2e-player");
   expect(state.seats[0].stack).toBe(10_000);
+});
+
+
+test("invalid persisted operator token is cleared and recovery is explicit", async ({
+  page,
+}) => {
+  await page.goto("/?operator=1");
+  await page.evaluate(() => {
+    sessionStorage.setItem("inarena_operator_token", "ops_invalid");
+  });
+  await page.reload();
+
+  await expect(
+    page.getByText("Сессия оператора истекла. Получите новую сессию."),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      sessionStorage.getItem("inarena_operator_token"),
+    ),
+  ).toBeNull();
 });
