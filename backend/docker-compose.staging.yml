@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: inarena
+      POSTGRES_PASSWORD: ${INARENA_STAGING_DB_PASSWORD}
+      POSTGRES_DB: inarena
+    volumes:
+      - inarena-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inarena -d inarena"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - inarena-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+    environment:
+      INARENA_ENV: staging
+      INARENA_DATABASE_URL: postgresql://inarena:${INARENA_STAGING_DB_PASSWORD}@postgres:5432/inarena
+      INARENA_REDIS_URL: redis://redis:6379/0
+      INARENA_OPERATOR_KEY: ${INARENA_OPERATOR_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      INARENA_DB_POOL_MIN: ${INARENA_DB_POOL_MIN:-2}
+      INARENA_DB_POOL_MAX: ${INARENA_DB_POOL_MAX:-10}
+      INARENA_DB_POOL_TIMEOUT_SECONDS: ${INARENA_DB_POOL_TIMEOUT_SECONDS:-5}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  inarena-postgres:
+  inarena-redis:
