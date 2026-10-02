@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -11,6 +12,9 @@ from .postgres_schema import POSTGRES_SCHEMA_STATEMENTS, POSTGRES_SCHEMA_VERSION
 
 
 SCHEMA_VERSION = 13
+
+_postgres_pool = None
+_postgres_pool_lock = threading.Lock()
 
 
 def _database_path() -> str:
@@ -39,8 +43,10 @@ def _translate_postgres_sql(sql: str) -> str:
 
 
 class PostgresConnection:
-    def __init__(self, raw: Any):
+    def __init__(self, raw: Any, release_context: Any):
         self.raw = raw
+        self._release_context = release_context
+        self._closed = False
 
     def execute(self, sql: str, params: tuple | list = ()):
         return self.raw.execute(_translate_postgres_sql(sql), params)
@@ -55,23 +61,80 @@ class PostgresConnection:
         self.raw.rollback()
 
     def close(self) -> None:
-        self.raw.close()
+        if self._closed:
+            return
+        self._closed = True
+        self._release_context.__exit__(None, None, None)
+
+
+def _postgres_pool_settings() -> tuple[int, int, float]:
+    try:
+        min_size = max(1, int(os.getenv("INARENA_DB_POOL_MIN", "2")))
+        max_size = max(min_size, int(os.getenv("INARENA_DB_POOL_MAX", "10")))
+        timeout = max(1.0, float(os.getenv("INARENA_DB_POOL_TIMEOUT_SECONDS", "5")))
+    except ValueError as exc:
+        raise RuntimeError("invalid PostgreSQL pool configuration") from exc
+    return min_size, max_size, timeout
+
+
+def init_database_pool() -> None:
+    global _postgres_pool
+    if database_backend() != "postgresql":
+        return
+    if _postgres_pool is not None:
+        return
+
+    with _postgres_pool_lock:
+        if _postgres_pool is not None:
+            return
+        try:
+            from psycopg.rows import dict_row
+            from psycopg_pool import ConnectionPool
+        except ImportError as exc:
+            raise RuntimeError(
+                "PostgreSQL backend requires the 'postgres' project extra"
+            ) from exc
+
+        url = _database_url()
+        if not url:
+            raise RuntimeError("INARENA_DATABASE_URL is required for PostgreSQL")
+        min_size, max_size, timeout = _postgres_pool_settings()
+        _postgres_pool = ConnectionPool(
+            conninfo=url,
+            min_size=min_size,
+            max_size=max_size,
+            timeout=timeout,
+            kwargs={"row_factory": dict_row},
+            open=True,
+        )
+        _postgres_pool.wait(timeout=timeout)
+
+
+def close_database_pool() -> None:
+    global _postgres_pool
+    with _postgres_pool_lock:
+        pool = _postgres_pool
+        _postgres_pool = None
+    if pool is not None:
+        pool.close()
+
+
+def postgres_pool_stats() -> dict[str, Any] | None:
+    if database_backend() != "postgresql":
+        return None
+    init_database_pool()
+    if _postgres_pool is None:
+        return None
+    return dict(_postgres_pool.get_stats())
 
 
 def _connect_postgres() -> PostgresConnection:
-    try:
-        import psycopg
-        from psycopg.rows import dict_row
-    except ImportError as exc:
-        raise RuntimeError(
-            "PostgreSQL backend requires the 'postgres' project extra"
-        ) from exc
-
-    url = _database_url()
-    if not url:
-        raise RuntimeError("INARENA_DATABASE_URL is required for PostgreSQL")
-    raw = psycopg.connect(url, row_factory=dict_row)
-    return PostgresConnection(raw)
+    init_database_pool()
+    if _postgres_pool is None:
+        raise RuntimeError("PostgreSQL pool is unavailable")
+    context = _postgres_pool.connection()
+    raw = context.__enter__()
+    return PostgresConnection(raw, context)
 
 
 def _connect_sqlite() -> sqlite3.Connection:
