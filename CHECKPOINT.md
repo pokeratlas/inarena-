@@ -91,13 +91,15 @@ Pending-command duplicate block: PASS.
 Transactional realtime outbox suite: PASS.
 Existing NLH / ledger / security / tournament suite: PASS.
 
-## Remaining realtime hardening
-The player-action path may perform automatic showdown settlement after the betting mutation using a second transaction.
-For that path, realtime still uses fallback delivery to avoid publishing a stale pre-settlement snapshot.
-
-Before public production:
-- move showdown calculation/settlement into the player-action transaction; then
-- enqueue the final player_action/hand_completed snapshot transactionally.
+## Realtime consistency
+Verified:
+- player betting mutation, automatic showdown settlement and final realtime outbox snapshot now share one database transaction;
+- uncontested settlement emits a final hand_completed snapshot;
+- river showdown emits a final hand_completed snapshot;
+- non-terminal actions emit player_action;
+- no stale pre-settlement snapshot is published from the action path;
+- SQLite regression suite: PASS;
+- PostgreSQL integration: PASS.
 
 ## Current deployment blocker
 The connected Vercel integration currently exposes no accessible Vercel team/account.
@@ -161,5 +163,27 @@ Production data-layer architecture is specified in:
 - docs/PRODUCTION_DATA_LAYER.md
 - docs/RUNTIME_ENVIRONMENT.md
 
-The current runtime is still SQLite-backed.
-Do not classify database readiness as production-complete until PostgreSQL integration tests pass.
+Verified:
+- runtime database adapter supports SQLite and PostgreSQL;
+- PostgreSQL schema parity integration is live;
+- PostgreSQL integration CI: PASS;
+- production readiness endpoint works against PostgreSQL;
+- bounded PostgreSQL connection pool is implemented;
+- pool min/max/acquisition timeout are environment-configurable;
+- FastAPI startup/shutdown manages pool lifecycle.
+
+SQLite remains the fast local-development baseline.
+PostgreSQL is the production target.
+
+
+## Next production bounded feature
+### Redis multi-instance realtime coordination
+Acceptance criteria:
+1. PostgreSQL remains the authoritative state/event source.
+2. Redis is used only for cross-instance event fan-out and ephemeral coordination.
+3. A realtime event committed to PostgreSQL may be published to Redis after outbox dispatch.
+4. Each backend instance subscribes and forwards remote events to its local WebSocket clients.
+5. The originating instance must not double-deliver its own event.
+6. Redis outage must not corrupt poker/ledger state.
+7. Single-instance mode continues to work without Redis.
+8. Redis connectivity/coordination status is surfaced in readiness diagnostics.
