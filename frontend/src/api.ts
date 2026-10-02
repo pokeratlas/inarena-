@@ -566,3 +566,15 @@ export async function claimSeatReservation(
   }
   return response.json();
 }
+
+
+export interface ReleaseMetadata {
+  release: string;
+  environment: string;
+}
+
+export async function getReleaseMetadata(): Promise<ReleaseMetadata> {
+  const response = await fetch(`${API_BASE}/version`);
+  if (!response.ok) throw new Error("Unable to load release metadata");
+  return response.json();
+}
