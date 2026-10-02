@@ -8,8 +8,9 @@ import json
 import os
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse
 
 from .db import (
     close_database_pool,
@@ -19,6 +20,11 @@ from .db import (
     init_database_pool,
     postgres_pool_stats,
     schema_version,
+)
+from .observability import (
+    RequestObservabilityMiddleware,
+    configure_logging,
+    release_metadata,
 )
 from .realtime_coordination import RedisRealtimeCoordinator
 from .telegram_auth import TelegramAuthError, validate_init_data
@@ -87,7 +93,45 @@ from .service import (
     configure_tournament_lifecycle,
 )
 
+configure_logging()
 app = FastAPI(title="INARENA API", version="0.2.0")
+app.add_middleware(RequestObservabilityMiddleware)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(
+    request: Request,
+    exc: HTTPException,
+) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", None)
+    headers = dict(exc.headers or {})
+    if request_id:
+        headers["X-Request-ID"] = request_id
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "request_id": request_id,
+        },
+        headers=headers,
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", None)
+    headers = {"X-Request-ID": request_id} if request_id else {}
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "internal error",
+            "request_id": request_id,
+        },
+        headers=headers,
+    )
 
 
 class TableCreate(BaseModel):
@@ -452,6 +496,50 @@ def ready() -> dict[str, Any]:
     checks["realtime_coordination"] = manager.coordinator.diagnostics()
     checks["configuration"] = {"status": "ok"}
     return {"status": "ready", "checks": checks}
+
+
+@app.get("/release")
+def release() -> dict[str, str]:
+    return release_metadata()
+
+
+@app.get("/api/v1/operator/diagnostics")
+def operator_diagnostics(
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator(x_operator_key)
+    conn = connect()
+    try:
+        pending_outbox = int(
+            conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM realtime_outbox
+                WHERE dispatched_at IS NULL
+                """
+            ).fetchone()["count"]
+        )
+    finally:
+        conn.close()
+
+    local_connections = sum(
+        len(sockets)
+        for sockets in manager.connections.values()
+    )
+    return {
+        **release_metadata(),
+        "schema_version": schema_version(),
+        "database_backend": database_backend(),
+        "database_pool": postgres_pool_stats(),
+        "realtime_coordination": manager.coordinator.diagnostics(),
+        "websocket": {
+            "local_connections": local_connections,
+            "tables_with_connections": len(manager.connections),
+        },
+        "realtime_outbox": {
+            "pending": pending_outbox,
+        },
+    }
 
 
 @app.get("/api/v1/tables")
