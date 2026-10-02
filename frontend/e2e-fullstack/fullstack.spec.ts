@@ -1,0 +1,93 @@
+import { expect, test } from "@playwright/test";
+
+const API = "http://127.0.0.1:8000";
+const BOOTSTRAP_KEY = "fullstack-operator";
+
+async function createOperatorToken(request: any): Promise<string> {
+  const response = await request.post(`${API}/api/v1/operator/auth`, {
+    headers: { "X-Operator-Key": BOOTSTRAP_KEY },
+    data: { scopes: [] },
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()).token;
+}
+
+test("operator bootstrap exchanges for scoped session and dashboard loads", async ({
+  page,
+}) => {
+  await page.goto("/?operator=1");
+
+  await page
+    .getByPlaceholder("Bootstrap operator key")
+    .fill(BOOTSTRAP_KEY);
+  await page.getByRole("button", { name: "Получить сессию" }).click();
+
+  await expect(page.getByText("Tables", { exact: true })).toBeVisible();
+  const token = await page.evaluate(() =>
+    sessionStorage.getItem("inarena_operator_token"),
+  );
+  expect(token).toMatch(/^ops_/);
+
+  await page.reload();
+  await expect(page.getByText("Tables", { exact: true })).toBeVisible();
+});
+
+test("authenticated player restores session and joins a real cash table", async ({
+  page,
+  request,
+}) => {
+  const operatorToken = await createOperatorToken(request);
+
+  const tableResponse = await request.post(
+    `${API}/api/v1/operator/tables`,
+    {
+      headers: { "X-Operator-Key": operatorToken },
+      data: { name: "E2E Cash Table" },
+    },
+  );
+  expect(tableResponse.ok()).toBeTruthy();
+  const table = await tableResponse.json();
+
+  const balanceResponse = await request.post(
+    `${API}/api/v1/operator/balance`,
+    {
+      headers: { "X-Operator-Key": operatorToken },
+      data: { user_id: "e2e-player", delta: 20_000 },
+    },
+  );
+  expect(balanceResponse.ok()).toBeTruthy();
+
+  const sessionResponse = await request.post(`${API}/api/v1/sessions`, {
+    data: {
+      user_id: "e2e-player",
+      provider: "test",
+      data: {},
+    },
+  });
+  expect(sessionResponse.ok()).toBeTruthy();
+  const session = await sessionResponse.json();
+
+  await page.goto("/");
+  await page.evaluate((sessionId) => {
+    localStorage.setItem("inarena_session_id", sessionId);
+  }, session.session_id);
+  await page.reload();
+
+  await page.getByRole("button", { name: "ONLINE" }).click();
+  await expect(page.getByText("E2E Cash Table")).toBeVisible();
+  await expect(page.getByText(/Баланс 20000 chips/)).toBeVisible();
+
+  await page.getByRole("button", { name: /Сесть · Seat 1/ }).click();
+
+  await expect(page.getByText("E2E Cash Table")).toBeVisible();
+  await expect(page.getByText(/Seat 1 · Вы/)).toBeVisible();
+
+  const stateResponse = await request.get(
+    `${API}/api/v1/tables/${table.id}`,
+  );
+  expect(stateResponse.ok()).toBeTruthy();
+  const state = await stateResponse.json();
+  expect(state.seats).toHaveLength(1);
+  expect(state.seats[0].player_id).toBe("e2e-player");
+  expect(state.seats[0].stack).toBe(10_000);
+});
