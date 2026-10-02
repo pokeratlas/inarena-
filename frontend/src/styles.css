@@ -737,3 +737,37 @@ body,
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+
+.state-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: #aebdda;
+  font-size: 12px;
+}
+
+.state-card strong {
+  color: #f4f7ff;
+  font-size: 13px;
+}
+
+.state-error {
+  border-color: rgba(255, 105, 120, 0.24);
+  background: rgba(255, 105, 120, 0.07);
+  color: #ffc2ca;
+}
+
+.operator-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.operator-header > div {
+  min-width: 0;
+}
