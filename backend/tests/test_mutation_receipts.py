@@ -209,3 +209,84 @@ def test_crash_after_cashout_recovers_without_second_credit(env):
         assert cashouts == 1
     finally:
         conn.close()
+
+
+def test_crash_after_reservation_claim_recovers_without_second_buyin(env):
+    client, db_path, service = env
+    table_id = make_cash_table(service, "Reservation")
+    waiter = make_session(service, "waiter")
+    sid = waiter["session_id"]
+
+    # Fill all nine seats through the domain service so waitlist is required.
+    for seat_no in range(1, 10):
+        service.join_table(
+            table_id,
+            f"occupant-{seat_no}",
+            seat_no,
+            1000,
+        )
+
+    service.operator_adjust_balance("waiter", 3000)
+    service.join_cash_waitlist(table_id, sid)
+
+    # Free one seat; domain invariant creates the reservation immediately.
+    service.stand(table_id, "occupant-4")
+    status = service.get_cash_waitlist_status(table_id, sid)
+    reservation = status["reservation"]
+    assert reservation is not None
+    assert reservation["seat_no"] == 4
+
+    payload = {
+        "table_id": table_id,
+        "reservation_id": reservation["id"],
+        "stack": 1000,
+    }
+    assert service.reserve_idempotency_command(
+        "waiter",
+        "reservation-claim",
+        "reservation-crash",
+        payload,
+    )["state"] == "execute"
+
+    receipt_context = service.build_mutation_receipt_context(
+        "waiter",
+        "reservation-claim",
+        "reservation-crash",
+        payload,
+    )
+    committed = service.claim_seat_reservation(
+        table_id,
+        sid,
+        reservation["id"],
+        1000,
+        receipt_context,
+    )
+
+    retried = client.post(
+        f"/api/v1/tables/{table_id}/reservations/claim",
+        headers={
+            "X-Session-ID": sid,
+            "Idempotency-Key": "reservation-crash",
+        },
+        json={
+            "reservation_id": reservation["id"],
+            "stack": 1000,
+        },
+    )
+    assert retried.status_code == 200
+    assert retried.json() == committed
+    assert service.get_player_balance(sid)["balance"] == 2000
+
+    conn = sqlite3.connect(db_path)
+    try:
+        buyins = conn.execute(
+            """
+            SELECT COUNT(*) FROM table_ledger
+            WHERE table_id = ? AND player_id = 'waiter'
+              AND entry_type = 'buyin'
+            """,
+            (table_id,),
+        ).fetchone()[0]
+        assert buyins == 1
+    finally:
+        conn.close()
