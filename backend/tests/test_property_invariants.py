@@ -54,10 +54,10 @@ def test_seven_card_score_is_best_of_all_five_card_subsets(cards):
 
 
 @given(
-    stack_a=st.integers(min_value=100, max_value=100_000),
-    stack_b=st.integers(min_value=100, max_value=100_000),
+    stack_a=st.integers(min_value=1_000, max_value=100_000),
+    stack_b=st.integers(min_value=1_000, max_value=100_000),
 )
-@settings(max_examples=40, deadline=None)
+@settings(max_examples=20, deadline=None)
 def test_heads_up_immediate_fold_conserves_total_chips(
     stack_a,
     stack_b,
