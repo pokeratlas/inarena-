@@ -3,7 +3,7 @@
 ## Required production environment
 - INARENA_DATABASE_URL
 - INARENA_OPERATOR_KEY
-- INARENA_CORS_ORIGINS
+- INARENA_ALLOWED_ORIGINS
 
 ## Optional
 - INARENA_REDIS_URL
@@ -90,9 +90,23 @@ Supported scopes:
 - operator:reports
 - operator:recovery
 
-The bootstrap key remains a temporary direct-access fallback during migration.
+The bootstrap key may only issue scoped operator sessions in staging and production.
+Direct operator API access with the bootstrap key is rejected outside development/test.
 
 ## CORS / browser boundary
-`INARENA_CORS_ORIGINS` is a comma-separated explicit allowlist.
+`INARENA_ALLOWED_ORIGINS` is the canonical comma-separated explicit allowlist.
 Production readiness rejects wildcard `*`.
 Telegram Mini App embedding is intentionally not blocked with X-Frame-Options.
+
+
+## Security perimeter
+Optional controls:
+- `INARENA_MAX_REQUEST_BODY_BYTES` — default 1 MiB;
+- `INARENA_RATE_LIMIT_AUTH_PER_MINUTE` — default 30;
+- `INARENA_RATE_LIMIT_OPERATOR_PER_MINUTE` — default 60;
+- `INARENA_RATE_LIMIT_PLAYER_PER_MINUTE` — default 180;
+- `INARENA_RATE_LIMIT_WS_PER_MINUTE` — default 30;
+- `INARENA_TRUST_PROXY_HEADERS=1` only behind a trusted reverse proxy.
+
+`INARENA_CORS_ORIGINS` is accepted only as a temporary compatibility alias.
+New deployments should use `INARENA_ALLOWED_ORIGINS`.
