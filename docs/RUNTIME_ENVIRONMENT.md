@@ -3,6 +3,7 @@
 ## Required production environment
 - INARENA_DATABASE_URL
 - INARENA_OPERATOR_KEY
+- INARENA_CORS_ORIGINS
 
 ## Optional
 - INARENA_REDIS_URL
@@ -10,6 +11,7 @@
 - INARENA_ACTION_TIMEOUT_SECONDS
 - INARENA_SEAT_RESERVATION_SECONDS
 - INARENA_SESSION_TTL_SECONDS
+- INARENA_OPERATOR_SESSION_TTL_SECONDS
 - INARENA_LOG_LEVEL
 - INARENA_RELEASE
 - INARENA_ENV
@@ -74,3 +76,23 @@ Telegram initData and private cards are not included in request logs.
 The public `/version` endpoint exposes only release identifier and environment.
 Operator-only `/api/v1/operator/diagnostics` exposes database, realtime and
 outbox health without secrets.
+
+
+## Operator authentication
+`INARENA_OPERATOR_KEY` is a bootstrap credential.
+Operator clients should exchange it for a short-lived scoped session token and
+store only the token for the active browser session.
+
+Default operator session TTL: 3600 seconds.
+Supported scopes:
+- operator:read
+- operator:write
+- operator:reports
+- operator:recovery
+
+The bootstrap key remains a temporary direct-access fallback during migration.
+
+## CORS / browser boundary
+`INARENA_CORS_ORIGINS` is a comma-separated explicit allowlist.
+Production readiness rejects wildcard `*`.
+Telegram Mini App embedding is intentionally not blocked with X-Frame-Options.
