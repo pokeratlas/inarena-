@@ -6,7 +6,6 @@ import csv
 import io
 import json
 import os
-import time
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
@@ -26,12 +25,6 @@ from .observability import (
     RequestObservabilityMiddleware,
     configure_logging,
     release_metadata,
-)
-from .observability import (
-    configure_logging,
-    release_metadata,
-    resolve_request_id,
-    structured_log,
 )
 from .realtime_coordination import RedisRealtimeCoordinator
 from .telegram_auth import TelegramAuthError, validate_init_data
@@ -101,35 +94,8 @@ from .service import (
     configure_tournament_lifecycle,
 )
 
-configure_logging()
-app = FastAPI(title="INARENA API", version="0.2.0")
 logger = configure_logging()
-
-
-@app.middleware("http")
-async def request_observability(request: Request, call_next):
-    request_id = resolve_request_id(request.headers.get("X-Request-ID"))
-    request.state.request_id = request_id
-    started = time.perf_counter()
-    response = None
-    status_code = 500
-    try:
-        response = await call_next(request)
-        status_code = response.status_code
-        response.headers["X-Request-ID"] = request_id
-        return response
-    finally:
-        duration_ms = round((time.perf_counter() - started) * 1000, 2)
-        structured_log(
-            logger,
-            "http_request",
-            request_id=request_id,
-            method=request.method,
-            path=request.url.path,
-            status=status_code,
-            duration_ms=duration_ms,
-            environment=os.getenv("INARENA_ENV", "development"),
-        )
+app = FastAPI(title="INARENA API", version="0.2.0")
 app.add_middleware(RequestObservabilityMiddleware)
 
 
