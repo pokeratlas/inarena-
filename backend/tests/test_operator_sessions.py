@@ -148,3 +148,43 @@ def test_unsupported_scope_is_rejected(tmp_path, monkeypatch):
             json={"scopes": ["operator:root"]},
         )
         assert response.status_code == 409
+
+
+def test_production_bootstrap_key_only_issues_scoped_sessions(
+    tmp_path,
+    monkeypatch,
+):
+    db_path = tmp_path / "operator-production.sqlite3"
+    monkeypatch.setenv("INARENA_DB_PATH", str(db_path))
+    monkeypatch.setenv("INARENA_ENV", "production")
+    monkeypatch.setenv("INARENA_OPERATOR_KEY", "bootstrap-secret")
+    monkeypatch.setenv("INARENA_ALLOWED_ORIGINS", "https://app.example")
+    monkeypatch.delenv("INARENA_DATABASE_URL", raising=False)
+    monkeypatch.delenv("INARENA_ENABLE_LEGACY_API", raising=False)
+
+    import app.db as db
+    import app.main as main
+
+    importlib.reload(db)
+    importlib.reload(main)
+
+    with TestClient(main.app) as client:
+        direct = client.get(
+            "/api/v1/operator/dashboard",
+            headers={"X-Operator-Key": "bootstrap-secret"},
+        )
+        assert direct.status_code == 401
+
+        auth = client.post(
+            "/api/v1/operator/auth",
+            headers={"X-Operator-Key": "bootstrap-secret"},
+            json={"scopes": ["operator:read"]},
+        )
+        assert auth.status_code == 200
+        token = auth.json()["token"]
+
+        scoped = client.get(
+            "/api/v1/operator/dashboard",
+            headers={"X-Operator-Key": token},
+        )
+        assert scoped.status_code == 200
