@@ -16,6 +16,7 @@ import {
   getMyHandHistory,
   getPlayerTableView,
   refreshCurrentSession,
+  revokeOperatorSession,
   joinAuthenticatedTable,
   joinCashWaitlist,
   operatorAdjustBalance,
@@ -596,6 +597,8 @@ function OnlineLobby({
   const playerId = session?.user_id ?? null;
   const [tables, setTables] = useState<TableState[]>([]);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [balance, setBalance] = useState<PlayerBalance | null>(null);
   const [registrations, setRegistrations] = useState<Record<string, TournamentRegistration>>({});
@@ -623,6 +626,8 @@ function OnlineLobby({
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setLoadingError(null);
 
     listTables()
       .then((nextTables) => {
@@ -633,14 +638,17 @@ function OnlineLobby({
       .catch((cause) => {
         if (!active) return;
         setLoadingError(
-          cause instanceof Error ? cause.message : "Unable to load lobby",
+          cause instanceof Error ? cause.message : "Не удалось загрузить лобби",
         );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   useEffect(() => {
     if (!session || tables.length === 0) {
@@ -738,12 +746,35 @@ function OnlineLobby({
         {balance ? <span className="balance-chip">Баланс {balance.balance} chips</span> : null}
       </header>
 
-      {loadingError ? <p role="alert">{loadingError}</p> : null}
-      {realtime.error ? <p role="status">{realtime.error}</p> : null}
+      {loading ? (
+        <div className="state-card" role="status" aria-live="polite">
+          Загружаем столы…
+        </div>
+      ) : null}
+      {loadingError ? (
+        <div className="state-card state-error" role="alert">
+          <span>{loadingError}</span>
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => setReloadKey((value) => value + 1)}
+          >
+            Повторить
+          </button>
+        </div>
+      ) : null}
+      {realtime.error ? (
+        <div className="state-card" role="status" aria-live="polite">
+          {realtime.error}
+        </div>
+      ) : null}
 
       <section className="lobby-list" aria-label="Онлайн столы">
-        {tables.length === 0 ? (
-          <p>Активных столов пока нет.</p>
+        {!loading && !loadingError && tables.length === 0 ? (
+          <div className="state-card">
+            <strong>Сейчас нет активных столов</strong>
+            <span>Новый стол появится здесь автоматически после создания оператором.</span>
+          </div>
         ) : (
           tables.map((table) => {
             const seated = table.seats.some(
@@ -1023,7 +1054,19 @@ function OperatorDashboardView() {
       }
     } catch (cause) {
       setDashboard(null);
-      setError(cause instanceof Error ? cause.message : "Operator error");
+      const message =
+        cause instanceof Error ? cause.message : "Operator error";
+      if (
+        key.startsWith("ops_") &&
+        message.includes("expired or unauthorized")
+      ) {
+        window.sessionStorage.removeItem("inarena_operator_token");
+        setOperatorKey("");
+        setAudit([]);
+        setError("Сессия оператора истекла. Получите новую сессию.");
+        return;
+      }
+      setError(message);
     }
   };
 
@@ -1033,9 +1076,27 @@ function OperatorDashboardView() {
 
   return (
     <main className="app-main operator-dashboard">
-      <header className="app-header">
-        <p>INARENA OPERATOR</p>
-        <h1>Dashboard</h1>
+      <header className="app-header operator-header">
+        <div>
+          <p>INARENA OPERATOR</p>
+          <h1>Dashboard</h1>
+        </div>
+        {dashboard && operatorKey ? (
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => {
+              void revokeOperatorSession(operatorKey).catch(() => undefined);
+              window.sessionStorage.removeItem("inarena_operator_token");
+              setOperatorKey("");
+              setDashboard(null);
+              setAudit([]);
+              setError(null);
+            }}
+          >
+            Выйти
+          </button>
+        ) : null}
       </header>
 
       <div className="operator-login">
@@ -1328,13 +1389,20 @@ export default function App() {
       />
       {mode === "online" ? (
         <>
+          {telegram.status === "authenticating" ? (
+            <div className="state-card" role="status" aria-live="polite">
+              Подключаем Telegram…
+            </div>
+          ) : null}
           {telegram.status === "error" ? (
-            <p role="alert">Telegram authentication failed.</p>
+            <div className="state-card state-error" role="alert">
+              Не удалось подтвердить Telegram-сессию. Закройте и снова откройте приложение из Telegram.
+            </div>
           ) : null}
           {telegram.status === "unavailable" ? (
-            <p role="status">
+            <div className="state-card" role="status">
               Откройте приложение внутри Telegram для действий от имени игрока.
-            </p>
+            </div>
           ) : null}
           <OnlineLobby
             session={telegram.session}
