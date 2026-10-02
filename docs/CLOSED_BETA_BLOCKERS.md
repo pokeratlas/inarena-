@@ -5,8 +5,18 @@
 ### 1. Public staging / preview hosting
 Status: BLOCKED EXTERNALLY.
 
-Current connected Vercel integration exposes no accessible team/account.
-A public HTTPS frontend + persistent backend endpoint is required for real-device beta.
+Vercel connection was rechecked on 2026-10-02 and still exposes no accessible team/account.
+
+The application is now provider-neutral:
+- Docker production backend;
+- PostgreSQL 16;
+- Redis 7;
+- explicit migration-before-start;
+- HTTPS/CORS contract;
+- staging smoke/full-stack E2E;
+- provider-neutral requirements in `docs/HOSTING_REQUIREMENTS.md`.
+
+A Render integration is available as an alternative deployment path once connected.
 
 ### 2. Real Telegram device dry run
 Required:
@@ -28,10 +38,21 @@ Run:
 
 Status: LOCAL POSTGRESQL BACKUP/RESTORE DRILL PASS; HOSTED PROVIDER DRILL PENDING.
 
-Automated CI now creates meaningful INARENA state, performs pg_dump,
+Automated CI creates meaningful INARENA state, performs pg_dump,
 restores into a clean PostgreSQL database, verifies migrations and checks
 restored domain data. The remaining requirement is repeating the same drill
 against the selected hosted PostgreSQL provider.
+
+## Beta operations readiness
+Ready:
+- release-candidate checklist;
+- machine-enforced RC workflow;
+- beta bug/UX issue forms;
+- P0-P3 triage policy;
+- beta handoff runbook;
+- hidden privacy-safe device diagnostics screen;
+- internal cash/tournament dry runs;
+- accessibility/browser/full-stack/load gates.
 
 ## Non-blocking but required before public production
 
@@ -69,7 +90,6 @@ Backend feature expansion remains frozen except:
 - correctness;
 - security;
 - completion of approved core flow.
-
 
 ### Device diagnostics
 Status: READY.
