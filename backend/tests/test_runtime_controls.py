@@ -294,4 +294,4 @@ def test_websocket_loop_auto_resolves_expired_action(client):
         assert snapshot["type"] == "table_snapshot"
         event = socket.receive_json()
         assert event["type"] == "table_event"
-        assert event["event_type"] == "action_timeout_resolved"
+        assert event["event_type"] == "hand_completed"
