@@ -12,7 +12,7 @@ from .migration_runner import migrate_postgres
 from .postgres_schema import POSTGRES_SCHEMA_VERSION
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 _postgres_pool = None
 _postgres_pool_lock = threading.Lock()
@@ -620,6 +620,24 @@ def _migration_14(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_15(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS operator_sessions (
+            token_hash TEXT PRIMARY KEY,
+            scopes_json TEXT NOT NULL,
+            expires_at_epoch INTEGER NOT NULL,
+            revoked_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_operator_sessions_expiry
+        ON operator_sessions(expires_at_epoch);
+        """
+    )
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
@@ -635,6 +653,7 @@ MIGRATIONS = {
     12: _migration_12,
     13: _migration_13,
     14: _migration_14,
+    15: _migration_15,
 }
 
 
