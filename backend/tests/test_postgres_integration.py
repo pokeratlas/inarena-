@@ -27,8 +27,13 @@ def test_postgres_runtime_smoke(monkeypatch):
     importlib.reload(service)
 
     assert db.database_backend() == "postgresql"
+    db.init_database_pool()
     db.ensure_schema()
     assert db.schema_version() == db.SCHEMA_VERSION
+    stats = db.postgres_pool_stats()
+    assert stats is not None
+    assert stats["pool_min"] >= 1
+    assert stats["pool_max"] >= stats["pool_min"]
 
     suffix = uuid.uuid4().hex[:8]
     table_id = service.create_table(f"Postgres {suffix}")["id"]
@@ -61,6 +66,11 @@ def test_postgres_runtime_smoke(monkeypatch):
     state = service.get_table_state(table_id)
     assert state["id"] == table_id
     assert len(state["seats"]) == 2
+
+    final_stats = db.postgres_pool_stats()
+    assert final_stats is not None
+    assert final_stats["pool_size"] <= final_stats["pool_max"]
+    db.close_database_pool()
 
 
 @pytest.mark.skipif(
