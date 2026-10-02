@@ -260,3 +260,37 @@ Acceptance criteria:
 5. Add backup/restore runbook.
 6. Add smoke-test gate covering ready/auth/table lifecycle/realtime.
 7. Keep local SQLite fast-test workflow unchanged.
+
+
+## Production migrations + staging/deploy milestone
+Verified:
+- explicit ordered PostgreSQL migration runner;
+- migration CLI supports upgrade / status / check;
+- production container runs migrations before starting Uvicorn;
+- staging stack uses PostgreSQL + Redis;
+- staging environment template is committed without secrets;
+- staging smoke test verifies:
+  - /health;
+  - /ready;
+  - auth boundary;
+  - operator authentication;
+  - table creation/close lifecycle;
+  - WebSocket snapshot;
+- backup/restore runbook is documented;
+- deployment/rollback runbook is documented;
+- backend CI staging-smoke gate: PASS;
+- PostgreSQL integration: PASS;
+- Redis integration: PASS;
+- frontend CI: PASS.
+
+## Next bounded feature
+### Observability + release diagnostics
+Acceptance criteria:
+1. Structured request logs include request ID, method, path, status and duration.
+2. Request ID is returned to clients and propagated through error responses.
+3. Runtime diagnostics expose database backend/pool, Redis coordination and schema version.
+4. Realtime diagnostics expose local WebSocket connection count and outbox backlog.
+5. Sensitive secrets, session IDs and private cards never appear in logs.
+6. Production log level is environment-configurable.
+7. A release metadata endpoint exposes commit/release identifier without secrets.
+8. CI covers request-ID propagation and diagnostics contracts.
