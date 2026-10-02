@@ -476,3 +476,43 @@ Priority:
 4. Fix only blocker/critical issues during beta freeze.
 5. Complete visual polish and accessibility pass.
 6. Publish public staging/preview when hosting access is available.
+
+
+## Internal dry run + accessibility milestone
+Verified on current release line:
+- reproducible 6-player cash-table dry run: PASS;
+- complete passive hand reaches showdown and settles automatically;
+- six-player chip conservation: PASS;
+- hand/action history persistence: PASS;
+- reproducible 4-player tournament dry run: PASS;
+- registration -> seating -> running -> showdown -> finished lifecycle: PASS;
+- deterministic winner and finish places 1–4: PASS;
+- tournament results report: PASS;
+- automated axe WCAG A/AA serious/critical scan: PASS;
+- keyboard navigation for player shell/operator login: PASS;
+- frontend browser E2E: PASS;
+- full-stack browser E2E: PASS;
+- backend/property suite: PASS;
+- PostgreSQL integration: PASS;
+- Redis integration: PASS;
+- staging smoke: PASS;
+- k6 load baseline: PASS;
+- production container build: PASS.
+
+Artifacts:
+- docs/INTERNAL_DRY_RUN_RESULTS.md
+- docs/CLOSED_BETA_BLOCKERS.md
+
+## Current readiness estimate
+- technical MVP: ~92%;
+- closed-beta readiness: ~90%;
+- public production readiness: ~75%.
+
+## Remaining closed-beta blockers
+1. Public HTTPS staging/preview hosting.
+2. Real Telegram Mini App dry run on iPhone and Android.
+3. Backup/restore drill against the actual hosting PostgreSQL provider.
+
+## Change policy
+Backend feature expansion remains frozen except for blocker, correctness,
+security, and approved core-flow completion.
