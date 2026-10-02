@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-POSTGRES_SCHEMA_VERSION = 14
+POSTGRES_SCHEMA_VERSION = 15
 
 POSTGRES_SCHEMA_STATEMENTS = [
     """
@@ -298,5 +298,19 @@ POSTGRES_SCHEMA_STATEMENTS = [
     """
     CREATE INDEX IF NOT EXISTS idx_mutation_receipts_created_at
     ON mutation_receipts(created_at)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS operator_sessions (
+        token_hash TEXT PRIMARY KEY,
+        scopes_json TEXT NOT NULL,
+        expires_at_epoch BIGINT NOT NULL,
+        revoked_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_operator_sessions_expiry
+    ON operator_sessions(expires_at_epoch)
     """,
 ]
