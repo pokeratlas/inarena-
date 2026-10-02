@@ -48,6 +48,7 @@ from .service import (
     NotFoundError,
     complete_hand,
     configure_table,
+    create_operator_session,
     create_session,
     create_table,
     delete_session,
@@ -88,6 +89,7 @@ from .service import (
     report_tournament_results,
     recover_mutation_receipt,
     refresh_session,
+    revoke_operator_session,
     set_blind_schedule_status,
     resolve_expired_action,
     set_operator_status,
@@ -103,6 +105,7 @@ from .service import (
     tournament_addon,
     tournament_rebuy,
     unregister_tournament,
+    validate_operator_session,
     configure_tournament_lifecycle,
 )
 
@@ -226,6 +229,10 @@ class TableConfigRequest(BaseModel):
     addon_stack: int = Field(default=0, ge=0)
 
 
+class OperatorSessionRequest(BaseModel):
+    scopes: list[str] = Field(default_factory=list)
+
+
 class BalanceAdjustRequest(BaseModel):
     user_id: str = Field(min_length=1)
     delta: int
@@ -340,12 +347,38 @@ def _require_legacy_api() -> None:
         raise HTTPException(status_code=404, detail="not found")
 
 
-def _require_operator(x_operator_key: str | None) -> None:
+def _require_operator_bootstrap(x_operator_key: str | None) -> None:
     expected = os.getenv("INARENA_OPERATOR_KEY")
     if not expected:
-        raise HTTPException(status_code=503, detail="operator access is not configured")
+        raise HTTPException(
+            status_code=503,
+            detail="operator access is not configured",
+        )
     if x_operator_key != expected:
         raise HTTPException(status_code=401, detail="invalid operator key")
+
+
+def _require_operator(
+    credential: str | None,
+    required_scope: str = "operator:read",
+) -> None:
+    expected = os.getenv("INARENA_OPERATOR_KEY")
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="operator access is not configured",
+        )
+
+    # Migration fallback: the bootstrap key still works directly until
+    # production rollout confirms all operator clients use scoped sessions.
+    if credential == expected:
+        return
+    if validate_operator_session(credential, required_scope):
+        return
+    raise HTTPException(
+        status_code=401,
+        detail="invalid or insufficient operator credential",
+    )
 
 
 def _idempotent_replay(
@@ -540,11 +573,40 @@ def release() -> dict[str, str]:
     return release_metadata()
 
 
+@app.post("/api/v1/operator/auth")
+def operator_authenticate(
+    payload: OperatorSessionRequest,
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> dict[str, Any]:
+    _require_operator_bootstrap(x_operator_key)
+    try:
+        return create_operator_session(payload.scopes or None)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/operator/auth/revoke", status_code=204)
+def operator_revoke_session(
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> Response:
+    if not x_operator_key or not x_operator_key.startswith("ops_"):
+        raise HTTPException(
+            status_code=400,
+            detail="scoped operator token is required",
+        )
+    _require_operator(x_operator_key, "operator:read")
+    try:
+        revoke_operator_session(x_operator_key)
+        return Response(status_code=204)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
 @app.get("/api/v1/operator/diagnostics")
 def operator_diagnostics(
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:read")
     realtime = manager.diagnostics()
     realtime["outbox_backlog"] = realtime_outbox_backlog()
     metadata = release_metadata()
@@ -1000,7 +1062,7 @@ def operator_create_table(
     payload: TableCreate,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:write")
     return create_table(payload.name)
 
 
@@ -1010,7 +1072,7 @@ async def operator_start_hand(
     payload: StartHandRequest,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:write")
     try:
         state = start_hand(table_id, payload.button_seat)
         await manager.broadcast_state(table_id, "hand_started")
@@ -1024,7 +1086,7 @@ def operator_balance_adjustment(
     payload: BalanceAdjustRequest,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:write")
     try:
         return operator_adjust_balance(payload.user_id, payload.delta)
     except Exception as exc:
@@ -1037,7 +1099,7 @@ def operator_audit_log(
     limit: int = 100,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> list[dict[str, Any]]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:read")
     try:
         return list_operator_audit(table_id, limit)
     except Exception as exc:
@@ -1050,7 +1112,7 @@ def operator_report_ledger(
     format: str = "json",
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ):
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:reports")
     try:
         rows = report_table_ledger(table_id)
         return _report_response(
@@ -1078,7 +1140,7 @@ def operator_report_tournament_results(
     format: str = "json",
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ):
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:reports")
     try:
         rows = report_tournament_results(table_id)
         return _report_response(
@@ -1110,7 +1172,7 @@ def operator_report_tournament_registrations(
     format: str = "json",
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ):
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:reports")
     try:
         rows = report_tournament_registrations(table_id)
         return _report_response(
@@ -1137,7 +1199,7 @@ def operator_report_audit(
     format: str = "json",
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ):
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:reports")
     try:
         rows = report_operator_audit(table_id)
         return _report_response(
@@ -1156,7 +1218,7 @@ def operator_report_audit(
 def operator_dashboard_view(
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:read")
     return operator_dashboard()
 
 
@@ -1166,7 +1228,7 @@ async def operator_tournament_lifecycle(
     payload: TournamentLifecycleRequest,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:write")
     try:
         state = configure_tournament_lifecycle(
             table_id,
@@ -1187,7 +1249,7 @@ async def operator_tournament_command(
     command: str,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:write")
     try:
         state = set_tournament_status(table_id, command)
         await manager.broadcast_state(table_id, f"tournament_{command}")
@@ -1202,7 +1264,7 @@ async def operator_configure_table(
     payload: TableConfigRequest,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:write")
     try:
         state = configure_table(
             table_id,
@@ -1230,7 +1292,7 @@ async def operator_refresh_waitlist(
     table_id: str,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:write")
     try:
         state = refresh_cash_waitlist(table_id)
         await manager.broadcast_state(table_id, "waitlist_refreshed")
@@ -1244,7 +1306,7 @@ async def operator_resolve_timeout(
     table_id: str,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:recovery")
     try:
         state = resolve_expired_action(table_id)
         await manager.broadcast_state(table_id, "action_timeout_resolved")
@@ -1257,7 +1319,7 @@ async def operator_resolve_timeout(
 def operator_tables(
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> list[dict[str, Any]]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:read")
     return list_tables()
 
 
@@ -1268,7 +1330,7 @@ async def operator_window_control(
     payload: WindowControlRequest,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:write")
     try:
         state = set_tournament_window(table_id, window, payload.open)
         await manager.broadcast_state(
@@ -1285,7 +1347,7 @@ async def operator_close_table(
     table_id: str,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:write")
     try:
         state = close_table(table_id)
         await manager.broadcast_state(table_id, "table_closed")
@@ -1300,7 +1362,7 @@ async def operator_blind_schedule_command(
     command: str,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:write")
     try:
         state = set_blind_schedule_status(table_id, command)
         await manager.broadcast_state(
@@ -1318,7 +1380,7 @@ async def operator_set_blinds(
     payload: BlindLevelRequest,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:write")
     try:
         state = set_blind_level(
             table_id,
@@ -1336,7 +1398,7 @@ async def operator_pause_table(
     table_id: str,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:write")
     try:
         state = set_operator_status(table_id, "paused")
         await manager.broadcast_state(table_id, "table_paused")
@@ -1350,7 +1412,7 @@ async def operator_resume_table(
     table_id: str,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:write")
     try:
         state = set_operator_status(table_id, "open")
         await manager.broadcast_state(table_id, "table_resumed")
@@ -1364,7 +1426,7 @@ async def operator_settle_showdown(
     table_id: str,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:recovery")
     try:
         state = settle_showdown(table_id)
         await manager.broadcast_state(table_id, "showdown_settled")
@@ -1379,7 +1441,7 @@ def operator_recovery_actions(
     limit: int = 100,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> list[dict[str, Any]]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:read")
     try:
         return list_recovery_actions(table_id, limit)
     except Exception as exc:
@@ -1392,7 +1454,7 @@ async def operator_abort_active_hand(
     payload: RecoveryRequest,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
-    _require_operator(x_operator_key)
+    _require_operator(x_operator_key, "operator:recovery")
     try:
         state = operator_abort_hand(table_id, payload.reason)
         await manager.broadcast_state(table_id, "hand_recovered")
