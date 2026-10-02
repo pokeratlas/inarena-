@@ -2817,6 +2817,104 @@ def list_recovery_actions(table_id: str, limit: int = 100) -> list[dict]:
         conn.close()
 
 
+OPERATOR_SCOPES = {
+    "operator:read",
+    "operator:write",
+    "operator:reports",
+    "operator:recovery",
+}
+
+
+def _operator_session_ttl_seconds() -> int:
+    raw = os.getenv("INARENA_OPERATOR_SESSION_TTL_SECONDS", "3600")
+    try:
+        return max(300, min(int(raw), 86400))
+    except ValueError:
+        return 3600
+
+
+def create_operator_session(scopes: list[str] | None = None) -> dict:
+    requested = list(dict.fromkeys(scopes or sorted(OPERATOR_SCOPES)))
+    unknown = set(requested) - OPERATOR_SCOPES
+    if unknown:
+        raise ConflictError("unsupported operator scope")
+    if not requested:
+        raise ConflictError("at least one operator scope is required")
+
+    token = "ops_" + secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    expires_at_epoch = int(time.time()) + _operator_session_ttl_seconds()
+
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO operator_sessions(
+                token_hash, scopes_json, expires_at_epoch
+            ) VALUES (?, ?, ?)
+            """,
+            (
+                token_hash,
+                json.dumps(requested, separators=(",", ":")),
+                expires_at_epoch,
+            ),
+        )
+        _audit_operator(
+            conn,
+            "operator_session_created",
+            details={"scopes": requested, "expires_at_epoch": expires_at_epoch},
+        )
+
+    return {
+        "token": token,
+        "scopes": requested,
+        "expires_at_epoch": expires_at_epoch,
+    }
+
+
+def validate_operator_session(
+    token: str | None,
+    required_scope: str,
+) -> bool:
+    if not token or not token.startswith("ops_"):
+        return False
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    conn = connect()
+    try:
+        row = conn.execute(
+            """
+            SELECT scopes_json, expires_at_epoch, revoked_at
+            FROM operator_sessions
+            WHERE token_hash = ?
+            """,
+            (token_hash,),
+        ).fetchone()
+        if row is None or row["revoked_at"] is not None:
+            return False
+        if int(row["expires_at_epoch"]) <= int(time.time()):
+            return False
+        scopes = set(json.loads(row["scopes_json"]))
+        return required_scope in scopes
+    finally:
+        conn.close()
+
+
+def revoke_operator_session(token: str) -> None:
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    with transaction() as conn:
+        cur = conn.execute(
+            """
+            UPDATE operator_sessions
+            SET revoked_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE token_hash = ? AND revoked_at IS NULL
+            """,
+            (token_hash,),
+        )
+        if cur.rowcount == 0:
+            raise NotFoundError("operator session not found")
+        _audit_operator(conn, "operator_session_revoked")
+
+
 def create_session(
     user_id: str,
     provider: str,
