@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   type AuthSession,
+  authenticateOperator,
   authenticateTelegram,
   claimSeatReservation,
   getCashWaitlistStatus,
@@ -999,8 +1000,9 @@ function OnlineLobby({
 
 function OperatorDashboardView() {
   const [operatorKey, setOperatorKey] = useState(
-    () => window.sessionStorage.getItem("inarena_operator_key") ?? "",
+    () => window.sessionStorage.getItem("inarena_operator_token") ?? "",
   );
+  const [bootstrapKey, setBootstrapKey] = useState("");
   const [dashboard, setDashboard] = useState<OperatorDashboard | null>(null);
   const [audit, setAudit] = useState<OperatorAuditEntry[]>([]);
   const [balanceUser, setBalanceUser] = useState("");
@@ -1016,7 +1018,9 @@ function OperatorDashboardView() {
       ]);
       setDashboard(data);
       setAudit(auditRows);
-      window.sessionStorage.setItem("inarena_operator_key", key);
+      if (key.startsWith("ops_")) {
+        window.sessionStorage.setItem("inarena_operator_token", key);
+      }
     } catch (cause) {
       setDashboard(null);
       setError(cause instanceof Error ? cause.message : "Operator error");
@@ -1037,16 +1041,35 @@ function OperatorDashboardView() {
       <div className="operator-login">
         <input
           type="password"
-          placeholder="Operator key"
-          value={operatorKey}
-          onChange={(event) => setOperatorKey(event.target.value)}
+          placeholder="Bootstrap operator key"
+          value={bootstrapKey}
+          onChange={(event) => setBootstrapKey(event.target.value)}
         />
         <button
           className="action-button action-primary"
           type="button"
-          onClick={() => void load()}
+          disabled={!bootstrapKey}
+          onClick={() =>
+            void authenticateOperator(bootstrapKey)
+              .then((session) => {
+                setOperatorKey(session.token);
+                setBootstrapKey("");
+                window.sessionStorage.setItem(
+                  "inarena_operator_token",
+                  session.token,
+                );
+                return load(session.token);
+              })
+              .catch((cause) =>
+                setError(
+                  cause instanceof Error
+                    ? cause.message
+                    : "Operator authentication failed",
+                ),
+              )
+          }
         >
-          Подключиться
+          Получить сессию
         </button>
       </div>
 
