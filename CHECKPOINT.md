@@ -556,3 +556,36 @@ CI on current release line:
 3. Backup/restore drill against the selected hosted PostgreSQL provider.
 
 The connected Vercel integration still reports zero accessible teams.
+
+
+## Device beta diagnostics milestone
+Verified:
+- hidden `?diagnostics=1` beta diagnostics screen;
+- release/environment metadata from backend;
+- Telegram platform/version/theme/viewport diagnostics;
+- browser viewport/DPR/language/network diagnostics;
+- player authentication status without exposing credentials;
+- no Telegram initData, session ID, operator token or private cards in diagnostics;
+- 390px browser privacy/layout regression: PASS;
+- frontend CI: PASS;
+- backend/property/PostgreSQL/Redis/staging/load/backup-restore gates: PASS.
+
+External status:
+- Vercel integration checked again: 0 accessible teams;
+- public HTTPS preview remains externally blocked;
+- real Telegram iPhone/Android device run is ready once public HTTPS exists;
+- local PostgreSQL backup/restore drill is PASS;
+- hosted PostgreSQL provider drill remains pending.
+
+## Current readiness estimate
+- technical MVP: ~96%;
+- closed-beta readiness: ~94%;
+- public production readiness: ~78%.
+
+## Next action boundary
+No new core backend features.
+Proceed only with:
+1. public HTTPS staging deployment;
+2. real Telegram Mini App device dry run;
+3. hosted PostgreSQL backup/restore verification;
+4. blocker/critical fixes found by those runs.
