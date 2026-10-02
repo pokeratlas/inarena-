@@ -516,3 +516,43 @@ Artifacts:
 ## Change policy
 Backend feature expansion remains frozen except for blocker, correctness,
 security, and approved core-flow completion.
+
+
+## UX state hardening milestone
+Verified on current release line:
+- explicit ONLINE lobby loading state;
+- explicit lobby error state with retry;
+- distinct empty-lobby state;
+- Telegram authenticating / unavailable / error states;
+- reconnect/player-action lock state remains visible;
+- scoped operator token expiry is detected;
+- expired operator token is removed from sessionStorage;
+- operator receives explicit re-authentication message;
+- operator logout revokes scoped session and clears local token;
+- full-stack browser test covers logout and expired-token recovery;
+- automated accessibility gate reports no serious/critical WCAG A/AA violations;
+- keyboard navigation for operator login: PASS.
+
+CI on current release line:
+- backend suite: PASS;
+- property-based poker invariants: PASS;
+- PostgreSQL integration: PASS;
+- Redis integration: PASS;
+- staging smoke: PASS;
+- k6 load baseline: PASS;
+- production container build: PASS;
+- frontend build: PASS;
+- browser E2E: PASS;
+- full-stack browser E2E: PASS.
+
+## Current readiness estimate
+- technical MVP: ~94%;
+- closed-beta readiness: ~92%;
+- public production readiness: ~76%.
+
+## Remaining beta blockers
+1. Public HTTPS staging/preview endpoint.
+2. Real Telegram Mini App device dry run on iPhone + Android.
+3. Backup/restore drill against the selected hosted PostgreSQL provider.
+
+The connected Vercel integration still reports zero accessible teams.
