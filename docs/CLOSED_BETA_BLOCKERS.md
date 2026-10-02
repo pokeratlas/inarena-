@@ -26,7 +26,12 @@ Run:
 - run migrations/check;
 - run smoke suite.
 
-Status: RUNBOOK READY; PROVIDER DRILL PENDING.
+Status: LOCAL POSTGRESQL BACKUP/RESTORE DRILL PASS; HOSTED PROVIDER DRILL PENDING.
+
+Automated CI now creates meaningful INARENA state, performs pg_dump,
+restores into a clean PostgreSQL database, verifies migrations and checks
+restored domain data. The remaining requirement is repeating the same drill
+against the selected hosted PostgreSQL provider.
 
 ## Non-blocking but required before public production
 
@@ -64,3 +69,26 @@ Backend feature expansion remains frozen except:
 - correctness;
 - security;
 - completion of approved core flow.
+
+
+### Device diagnostics
+Status: READY.
+
+A hidden beta diagnostics screen is available at:
+`?diagnostics=1`
+
+It exposes only safe troubleshooting context:
+- release/environment;
+- Telegram WebApp availability/platform/version/theme;
+- Telegram viewport/stable viewport;
+- browser viewport/DPR/language/network state;
+- authentication status/provider.
+
+It intentionally excludes:
+- Telegram initData;
+- player session IDs;
+- operator tokens;
+- private cards;
+- authorization headers.
+
+Use together with `docs/BETA_DEVICE_RUNBOOK.md`.
