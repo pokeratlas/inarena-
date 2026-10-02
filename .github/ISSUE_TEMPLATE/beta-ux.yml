@@ -1,0 +1,61 @@
+name: Closed Beta UX Feedback
+description: Report friction, confusion or visual problems during INARENA beta
+title: "[BETA UX] "
+labels:
+  - beta
+  - ux
+body:
+  - type: dropdown
+    id: flow
+    attributes:
+      label: Flow
+      options:
+        - First open / authentication
+        - OFFLINE / ONLINE switch
+        - Lobby
+        - Cash seating / waitlist
+        - Tournament registration
+        - Live table
+        - Reconnect / timeout
+        - Profile / history
+        - Operator dashboard
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device / viewport
+      placeholder: iPhone 390px / Android 360px / Desktop
+    validations:
+      required: true
+
+  - type: textarea
+    id: friction
+    attributes:
+      label: What was difficult or unclear?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - Could not continue
+        - Continued with difficulty
+        - Minor friction
+        - Visual only
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshot / recording / notes
