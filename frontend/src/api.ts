@@ -260,6 +260,41 @@ export async function tournamentAddon(
   return response.json();
 }
 
+export interface OperatorSession {
+  token: string;
+  scopes: string[];
+  expires_at_epoch: number;
+}
+
+export async function authenticateOperator(
+  bootstrapKey: string,
+  scopes: string[] = [],
+): Promise<OperatorSession> {
+  const response = await fetch(`${API_BASE}/api/v1/operator/auth`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Operator-Key": bootstrapKey,
+    },
+    body: JSON.stringify({ scopes }),
+  });
+  if (!response.ok) throw new Error("Operator authentication failed");
+  return response.json();
+}
+
+export async function revokeOperatorSession(
+  operatorToken: string,
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/v1/operator/auth/revoke`, {
+    method: "POST",
+    headers: { "X-Operator-Key": operatorToken },
+  });
+  if (!response.ok && response.status !== 204) {
+    throw new Error("Unable to revoke operator session");
+  }
+}
+
+
 export async function getOperatorDashboard(
   operatorKey: string,
 ): Promise<OperatorDashboard> {
