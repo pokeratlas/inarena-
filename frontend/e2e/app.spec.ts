@@ -62,3 +62,24 @@ test("operator dashboard uses desktop width without overflow", async ({ page }) 
   expect(geometry.width).toBeLessThanOrEqual(1100);
   expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
 });
+
+
+test("beta diagnostics renders without sensitive credentials", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?diagnostics=1");
+
+  await expect(
+    page.getByRole("heading", { name: "Device diagnostics" }),
+  ).toBeVisible();
+  await expect(page.getByText("Telegram", { exact: true })).toBeVisible();
+  await expect(page.getByText("Viewport", { exact: true })).toBeVisible();
+  await expect(page.getByText("Session", { exact: true })).toBeVisible();
+
+  const content = await page.locator("body").innerText();
+  expect(content).not.toContain("initData=");
+  expect(content).not.toContain("inarena_session_id");
+  expect(content).not.toContain("ops_");
+
+  const width = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(width).toBeLessThanOrEqual(390);
+});
