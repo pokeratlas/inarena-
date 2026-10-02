@@ -219,3 +219,44 @@ Target:
 2. For unavoidable split flows, persist an authoritative mutation/result reference that can reconcile an interrupted command.
 3. Never blindly re-execute a chip-moving command whose prior outcome is unknown.
 4. Add restart/crash regression tests for buy-in, cash-out, reservation claim and player action.
+
+
+## Crash-safe idempotency milestone
+Verified through schema v14:
+- critical business mutations write a mutation receipt in the same database transaction as the authoritative state change;
+- receipt contains the request fingerprint and final response snapshot;
+- if the process crashes after business commit but before idempotency journal completion, retry recovers the committed response from the receipt;
+- retry does not repeat chip movement, ledger insertion or hand action;
+- recovered journal is promoted from in_progress to completed;
+- same-key / different-payload protection remains enforced.
+
+Crash simulation coverage:
+- production cash buy-in: PASS;
+- production cash-out: PASS;
+- reservation claim: PASS;
+- player action: PASS.
+
+PostgreSQL:
+- schema v14 parity: PASS;
+- prior metadata version upgrade 13 -> 14: PASS.
+
+## Current production readiness direction
+The main correctness layers are now in place:
+- server-authoritative poker state;
+- transactional settlement/outbox;
+- durable idempotency plus crash receipts;
+- PostgreSQL adapter and bounded pool;
+- Redis multi-instance realtime fan-out;
+- production container build;
+- readiness diagnostics.
+
+## Next bounded feature
+### Production migrations + staging/deploy gate
+Acceptance criteria:
+1. Replace ad-hoc PostgreSQL version bumping with an explicit ordered migration runner.
+2. Preserve upgrade path from the current schema without destructive resets.
+3. Add staging environment contract using PostgreSQL + Redis.
+4. Add migration-before-start deployment command.
+5. Add backup/restore runbook.
+6. Add smoke-test gate covering ready/auth/table lifecycle/realtime.
+7. Keep local SQLite fast-test workflow unchanged.
