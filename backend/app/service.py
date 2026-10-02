@@ -3526,6 +3526,32 @@ def _enqueue_realtime_outbox(conn, table_id: str, event_type: str) -> int:
     return int(row["id"])
 
 
+def realtime_outbox_backlog(table_id: str | None = None) -> int:
+    conn = connect()
+    try:
+        if table_id is None:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM realtime_outbox
+                WHERE dispatched_at IS NULL
+                """
+            ).fetchone()
+        else:
+            _require_table(conn, table_id)
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM realtime_outbox
+                WHERE table_id = ? AND dispatched_at IS NULL
+                """,
+                (table_id,),
+            ).fetchone()
+        return int(row["count"])
+    finally:
+        conn.close()
+
+
 def dispatch_table_outbox(table_id: str, limit: int = 100) -> list[dict]:
     dispatched: list[dict] = []
     with transaction() as conn:
