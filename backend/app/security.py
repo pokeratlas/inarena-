@@ -229,13 +229,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             rate_limit_for_category(category),
         )
         if not allowed:
+            request_id = getattr(request.state, "request_id", None)
+            headers_out = {"Retry-After": str(retry_after)}
+            if request_id:
+                headers_out["X-Request-ID"] = request_id
             return JSONResponse(
                 status_code=429,
                 content={
                     "detail": "rate limit exceeded",
                     "retry_after": retry_after,
+                    "request_id": request_id,
                 },
-                headers={"Retry-After": str(retry_after)},
+                headers=headers_out,
             )
         return await call_next(request)
 
@@ -263,9 +268,18 @@ class RequestBodyLimitMiddleware:
         if content_length:
             try:
                 if int(content_length) > limit:
+                    request_id = scope.get("state", {}).get("request_id")
                     response = JSONResponse(
                         status_code=413,
-                        content={"detail": "request body too large"},
+                        content={
+                            "detail": "request body too large",
+                            "request_id": request_id,
+                        },
+                        headers=(
+                            {"X-Request-ID": request_id}
+                            if request_id
+                            else None
+                        ),
                     )
                     await response(scope, receive, send)
                     return
@@ -282,9 +296,18 @@ class RequestBodyLimitMiddleware:
             body = message.get("body", b"")
             total += len(body)
             if total > limit:
+                request_id = scope.get("state", {}).get("request_id")
                 response = JSONResponse(
                     status_code=413,
-                    content={"detail": "request body too large"},
+                    content={
+                        "detail": "request body too large",
+                        "request_id": request_id,
+                    },
+                    headers=(
+                        {"X-Request-ID": request_id}
+                        if request_id
+                        else None
+                    ),
                 )
                 await response(scope, receive, send)
                 return
