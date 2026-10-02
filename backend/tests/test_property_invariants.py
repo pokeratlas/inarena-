@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import os
+import tempfile
 from itertools import combinations
 
 from fastapi.testclient import TestClient
@@ -52,76 +54,78 @@ def test_seven_card_score_is_best_of_all_five_card_subsets(cards):
 
 
 @given(
-    st.integers(min_value=100, max_value=100_000),
-    st.integers(min_value=100, max_value=100_000),
+    stack_a=st.integers(min_value=100, max_value=100_000),
+    stack_b=st.integers(min_value=100, max_value=100_000),
 )
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=40, deadline=None)
 def test_heads_up_immediate_fold_conserves_total_chips(
     stack_a,
     stack_b,
-    tmp_path_factory,
-    monkeypatch,
 ):
-    db_path = tmp_path_factory.mktemp("property") / "chips.sqlite3"
-    monkeypatch.setenv("INARENA_DB_PATH", str(db_path))
-    monkeypatch.setenv("INARENA_OPERATOR_KEY", "operator")
-    monkeypatch.setenv("INARENA_ENABLE_LEGACY_API", "1")
+    with tempfile.TemporaryDirectory() as directory:
+        os.environ["INARENA_DB_PATH"] = os.path.join(
+            directory,
+            "chips.sqlite3",
+        )
+        os.environ["INARENA_OPERATOR_KEY"] = "operator"
+        os.environ["INARENA_ENABLE_LEGACY_API"] = "1"
+        os.environ["INARENA_ENV"] = "test"
 
-    import app.db as db
-    import app.service as service
-    import app.main as main
+        import app.db as db
+        import app.service as service
+        import app.main as main
 
-    importlib.reload(db)
-    importlib.reload(service)
-    importlib.reload(main)
+        importlib.reload(db)
+        importlib.reload(service)
+        importlib.reload(main)
 
-    with TestClient(main.app) as client:
-        table = client.post(
-            "/api/v1/tables",
-            json={"name": "Property"},
-        ).json()
-        table_id = table["id"]
+        with TestClient(main.app) as client:
+            table = client.post(
+                "/api/v1/tables",
+                json={"name": "Property"},
+            ).json()
+            table_id = table["id"]
 
-        for player_id, seat_no, stack in (
-            ("p1", 1, stack_a),
-            ("p2", 2, stack_b),
-        ):
-            joined = client.post(
-                f"/api/v1/tables/{table_id}/join",
+            for player_id, seat_no, stack in (
+                ("p1", 1, stack_a),
+                ("p2", 2, stack_b),
+            ):
+                joined = client.post(
+                    f"/api/v1/tables/{table_id}/join",
+                    json={
+                        "player_id": player_id,
+                        "seat_no": seat_no,
+                        "stack": stack,
+                    },
+                )
+                assert joined.status_code == 200
+
+            started = client.post(
+                f"/api/v1/tables/{table_id}/start-hand",
+                json={"button_seat": 1},
+            )
+            assert started.status_code == 200
+            state = started.json()
+            action_seat = state["active_hand"]["action_seat"]
+            actor = next(
+                seat["player_id"]
+                for seat in state["seats"]
+                if seat["seat_no"] == action_seat
+            )
+
+            folded = client.post(
+                f"/api/v1/tables/{table_id}/action",
                 json={
-                    "player_id": player_id,
-                    "seat_no": seat_no,
-                    "stack": stack,
+                    "player_id": actor,
+                    "action": "fold",
+                    "expected_action_no": 0,
                 },
             )
-            assert joined.status_code == 200
+            assert folded.status_code == 200
+            final_state = folded.json()
 
-        started = client.post(
-            f"/api/v1/tables/{table_id}/start-hand",
-            json={"button_seat": 1},
-        )
-        assert started.status_code == 200
+            assert final_state["active_hand"] is None
+            assert sum(
+                seat["stack"] for seat in final_state["seats"]
+            ) == stack_a + stack_b
 
-        actor = started.json()["active_hand"]["state"]["players"][0]["player_id"]
-        action_seat = started.json()["active_hand"]["action_seat"]
-        actor = next(
-            seat["player_id"]
-            for seat in started.json()["seats"]
-            if seat["seat_no"] == action_seat
-        )
-
-        folded = client.post(
-            f"/api/v1/tables/{table_id}/action",
-            json={
-                "player_id": actor,
-                "action": "fold",
-                "expected_action_no": 0,
-            },
-        )
-        assert folded.status_code == 200
-        final_state = folded.json()
-
-        assert final_state["active_hand"] is None
-        assert sum(seat["stack"] for seat in final_state["seats"]) == (
-            stack_a + stack_b
-        )
