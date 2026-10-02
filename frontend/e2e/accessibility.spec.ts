@@ -63,6 +63,7 @@ test("operator login has no serious accessibility violations", async ({
   await page.keyboard.press("Tab");
   await expect(keyInput).toBeFocused();
 
+  await keyInput.fill("keyboard-test-key");
   await page.keyboard.press("Tab");
   await expect(
     page.getByRole("button", { name: "Получить сессию" }),
