@@ -11,7 +11,15 @@ from typing import Any
 from fastapi import FastAPI, Header, HTTPException, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from .db import connect, ensure_schema, schema_version
+from .db import (
+    close_database_pool,
+    connect,
+    database_backend,
+    ensure_schema,
+    init_database_pool,
+    postgres_pool_stats,
+    schema_version,
+)
 from .telegram_auth import TelegramAuthError, validate_init_data
 from .service import (
     AuthenticationError,
@@ -228,7 +236,13 @@ manager = ConnectionManager()
 
 @app.on_event("startup")
 def startup() -> None:
+    init_database_pool()
     ensure_schema()
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    close_database_pool()
 
 
 def _require_legacy_api() -> None:
@@ -343,6 +357,8 @@ def ready() -> dict[str, Any]:
     environment = os.getenv("INARENA_ENV", "development")
     checks: dict[str, Any] = {
         "database": "unknown",
+        "database_backend": database_backend(),
+        "database_pool": None,
         "schema_version": None,
         "environment": environment,
     }
@@ -354,6 +370,7 @@ def ready() -> dict[str, Any]:
         finally:
             conn.close()
         checks["database"] = "ok"
+        checks["database_pool"] = postgres_pool_stats()
         checks["schema_version"] = schema_version()
     except Exception as exc:
         checks["database"] = "error"
