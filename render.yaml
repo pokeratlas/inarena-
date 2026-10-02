@@ -21,9 +21,15 @@ services:
       - key: INARENA_OPERATOR_KEY
         sync: false
       - key: INARENA_ALLOWED_ORIGINS
-        sync: false
+        fromService:
+          type: web
+          name: inarena-frontend
+          envVarKey: RENDER_EXTERNAL_URL
       - key: INARENA_RELEASE
-        value: render-staging
+        fromService:
+          type: web
+          name: inarena-backend
+          envVarKey: RENDER_GIT_COMMIT
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: INARENA_DB_POOL_MIN
@@ -32,6 +38,34 @@ services:
         value: "10"
       - key: INARENA_DB_POOL_TIMEOUT_SECONDS
         value: "5"
+
+  - type: web
+    name: inarena-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    autoDeploy: false
+    envVars:
+      - key: VITE_API_BASE
+        fromService:
+          type: web
+          name: inarena-backend
+          envVarKey: RENDER_EXTERNAL_URL
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
 
   - type: keyvalue
     name: inarena-redis
