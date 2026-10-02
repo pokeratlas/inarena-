@@ -8,8 +8,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from .postgres_migrations import POSTGRES_MIGRATIONS
-from .postgres_schema import POSTGRES_SCHEMA_STATEMENTS, POSTGRES_SCHEMA_VERSION
+from .migration_runner import migrate_postgres
+from .postgres_schema import POSTGRES_SCHEMA_VERSION
 
 
 SCHEMA_VERSION = 14
@@ -641,54 +641,14 @@ MIGRATIONS = {
 def _ensure_postgres_schema() -> None:
     conn = _connect_postgres()
     try:
-        conn.execute_raw(
-            """
-            CREATE TABLE IF NOT EXISTS inarena_schema_meta (
-                version INTEGER NOT NULL
-            )
-            """
-        )
-        row = conn.execute_raw(
-            "SELECT version FROM inarena_schema_meta LIMIT 1"
-        ).fetchone()
-
-        if row is None:
-            for statement in POSTGRES_SCHEMA_STATEMENTS:
-                conn.execute_raw(statement)
-            conn.execute_raw(
-                "INSERT INTO inarena_schema_meta(version) VALUES (%s)",
-                (POSTGRES_SCHEMA_VERSION,),
-            )
-            conn.commit()
-            return
-
-        current = int(row["version"])
-        if current > POSTGRES_SCHEMA_VERSION:
-            raise RuntimeError(
-                "PostgreSQL schema version "
-                f"{current} is newer than supported "
-                f"{POSTGRES_SCHEMA_VERSION}"
-            )
-
-        for version in range(current + 1, POSTGRES_SCHEMA_VERSION + 1):
-            statements = POSTGRES_MIGRATIONS.get(version)
-            if statements is None:
-                raise RuntimeError(
-                    f"missing PostgreSQL migration for schema version {version}"
-                )
-            for statement in statements:
-                conn.execute_raw(statement)
-            conn.execute_raw(
-                "UPDATE inarena_schema_meta SET version = %s",
-                (version,),
-            )
-
+        migrate_postgres(conn)
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
+
 
 
 def _ensure_sqlite_schema() -> None:
