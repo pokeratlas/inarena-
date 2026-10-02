@@ -11,6 +11,7 @@
 - INARENA_SEAT_RESERVATION_SECONDS
 - INARENA_SESSION_TTL_SECONDS
 - INARENA_LOG_LEVEL
+- INARENA_RELEASE
 - INARENA_ENV
 - INARENA_DB_POOL_MIN
 - INARENA_DB_POOL_MAX
@@ -52,3 +53,24 @@ Production defaults:
 
 Tune these values against the hosting provider connection limit.
 Each API transaction borrows a pooled connection and returns it when the transaction closes.
+
+
+## Observability
+HTTP responses include `X-Request-ID`.
+A valid inbound `X-Request-ID` is preserved; otherwise the backend generates one.
+
+Structured HTTP logs include only:
+- request ID;
+- method;
+- path;
+- response status;
+- duration;
+- environment.
+
+Request/response bodies, session IDs, authorization headers, operator keys,
+Telegram initData and private cards are not included in request logs.
+
+`INARENA_RELEASE` should be set to the deployed Git commit or release identifier.
+The public `/version` endpoint exposes only release identifier and environment.
+Operator-only `/api/v1/operator/diagnostics` exposes database, realtime and
+outbox health without secrets.
