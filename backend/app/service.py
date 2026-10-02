@@ -2082,6 +2082,7 @@ def submit_player_action(
                 json.dumps(state, separators=(",", ":")),
             ),
         )
+        event_type = "player_action"
         if auto_winner is not None:
             payouts = {
                 row["player_id"]: (
@@ -2095,6 +2096,7 @@ def submit_player_action(
                 {"hand_id": hand["hand_id"], "pot": next_pot},
                 payouts,
             )
+            event_type = "hand_completed"
         else:
             conn.execute(
                 """
@@ -2111,14 +2113,22 @@ def submit_player_action(
                     table_id,
                 ),
             )
+            if showdown_pending:
+                payouts = _calculate_showdown_payouts_in_conn(
+                    conn,
+                    table_id,
+                )
+                _settle_payouts_in_conn(
+                    conn,
+                    table_id,
+                    {"hand_id": hand["hand_id"], "pot": next_pot},
+                    payouts,
+                )
+                event_type = "hand_completed"
 
-    result = get_table_state(table_id)
-    hand_state = result.get("active_hand")
-    if (
-        hand_state is not None
-        and hand_state.get("state", {}).get("showdown_pending")
-    ):
-        return settle_showdown(table_id)
+        _enqueue_realtime_outbox(conn, table_id, event_type)
+        result = _get_table_state_with_conn(conn, table_id)
+
     return result
 
 
@@ -2380,111 +2390,122 @@ def complete_hand(table_id: str, payouts: dict[str, int]) -> dict:
     return get_table_state(table_id)
 
 
+def _calculate_showdown_payouts_in_conn(
+    conn,
+    table_id: str,
+) -> dict[str, int]:
+    _require_table(conn, table_id)
+    hand = conn.execute(
+        """
+        SELECT hand_id, pot, state_json
+        FROM active_hands
+        WHERE table_id = ?
+        """,
+        (table_id,),
+    ).fetchone()
+    if hand is None:
+        raise NotFoundError("no active hand")
+
+    state = json.loads(hand["state_json"])
+    if not state.get("showdown_pending"):
+        raise ConflictError("hand is not ready for showdown")
+
+    pot = int(hand["pot"])
+    folded = set(state.get("folded", []))
+    board = list(state.get("board", []))
+    all_players = list(state.get("players", []))
+    participants = [
+        player
+        for player in all_players
+        if player["player_id"] not in folded
+    ]
+    if not participants:
+        raise ConflictError("no eligible showdown players")
+
+    uncontested = state.get("uncontested_winner")
+    if uncontested:
+        return {
+            player["player_id"]: (
+                pot if player["player_id"] == uncontested else 0
+            )
+            for player in all_players
+        }
+
+    if len(board) != 5:
+        raise ConflictError("showdown requires a complete board")
+
+    scores: dict[str, tuple[int, ...]] = {}
+    seat_order: dict[str, int] = {}
+    for player in participants:
+        row = conn.execute(
+            """
+            SELECT cards_json
+            FROM hand_private_cards
+            WHERE hand_id = ? AND player_id = ?
+            """,
+            (hand["hand_id"], player["player_id"]),
+        ).fetchone()
+        if row is None:
+            raise ConflictError("private cards missing for showdown")
+        hole_cards = json.loads(row["cards_json"])
+        scores[player["player_id"]] = evaluate_seven(
+            [*hole_cards, *board]
+        )
+        seat_order[player["player_id"]] = int(player["seat_no"])
+
+    contributions = {
+        player_id: int(value)
+        for player_id, value in dict(
+            state.get("contributions", {})
+        ).items()
+        if int(value) > 0
+    }
+    if sum(contributions.values()) != pot:
+        raise ConflictError("contribution ledger does not match pot")
+
+    payouts = {player["player_id"]: 0 for player in all_players}
+    levels = sorted(set(contributions.values()))
+    previous = 0
+    for level in levels:
+        contributors = [
+            player_id
+            for player_id, amount in contributions.items()
+            if amount >= level
+        ]
+        side_pot = (level - previous) * len(contributors)
+        previous = level
+        eligible = [
+            player_id
+            for player_id in contributors
+            if player_id not in folded
+        ]
+        if not eligible:
+            continue
+
+        best = max(scores[player_id] for player_id in eligible)
+        winners = sorted(
+            (
+                player_id
+                for player_id in eligible
+                if scores[player_id] == best
+            ),
+            key=lambda player_id: seat_order[player_id],
+        )
+        share, remainder = divmod(side_pot, len(winners))
+        for index, winner in enumerate(winners):
+            payouts[winner] += share + (
+                1 if index < remainder else 0
+            )
+
+    if sum(payouts.values()) != pot:
+        raise ConflictError("side-pot payout calculation mismatch")
+    return payouts
+
+
 def calculate_showdown_payouts(table_id: str) -> dict[str, int]:
     conn = connect()
     try:
-        _require_table(conn, table_id)
-        hand = conn.execute(
-            """
-            SELECT hand_id, pot, state_json
-            FROM active_hands
-            WHERE table_id = ?
-            """,
-            (table_id,),
-        ).fetchone()
-        if hand is None:
-            raise NotFoundError("no active hand")
-
-        state = json.loads(hand["state_json"])
-        if not state.get("showdown_pending"):
-            raise ConflictError("hand is not ready for showdown")
-
-        pot = int(hand["pot"])
-        folded = set(state.get("folded", []))
-        board = list(state.get("board", []))
-        all_players = list(state.get("players", []))
-        participants = [
-            player
-            for player in all_players
-            if player["player_id"] not in folded
-        ]
-        if not participants:
-            raise ConflictError("no eligible showdown players")
-
-        uncontested = state.get("uncontested_winner")
-        if uncontested:
-            return {
-                player["player_id"]: pot if player["player_id"] == uncontested else 0
-                for player in all_players
-            }
-
-        if len(board) != 5:
-            raise ConflictError("showdown requires a complete board")
-
-        scores: dict[str, tuple[int, ...]] = {}
-        seat_order: dict[str, int] = {}
-        for player in participants:
-            row = conn.execute(
-                """
-                SELECT cards_json
-                FROM hand_private_cards
-                WHERE hand_id = ? AND player_id = ?
-                """,
-                (hand["hand_id"], player["player_id"]),
-            ).fetchone()
-            if row is None:
-                raise ConflictError("private cards missing for showdown")
-            hole_cards = json.loads(row["cards_json"])
-            scores[player["player_id"]] = evaluate_seven(
-                [*hole_cards, *board]
-            )
-            seat_order[player["player_id"]] = int(player["seat_no"])
-
-        contributions = {
-            player_id: int(value)
-            for player_id, value in dict(
-                state.get("contributions", {})
-            ).items()
-            if int(value) > 0
-        }
-        if sum(contributions.values()) != pot:
-            raise ConflictError("contribution ledger does not match pot")
-
-        payouts = {player["player_id"]: 0 for player in all_players}
-        levels = sorted(set(contributions.values()))
-        previous = 0
-        for level in levels:
-            contributors = [
-                player_id
-                for player_id, amount in contributions.items()
-                if amount >= level
-            ]
-            side_pot = (level - previous) * len(contributors)
-            previous = level
-            eligible = [
-                player_id
-                for player_id in contributors
-                if player_id not in folded
-            ]
-            if not eligible:
-                continue
-
-            best = max(scores[player_id] for player_id in eligible)
-            winners = sorted(
-                (
-                    player_id
-                    for player_id in eligible
-                    if scores[player_id] == best
-                ),
-                key=lambda player_id: seat_order[player_id],
-            )
-            share, remainder = divmod(side_pot, len(winners))
-            for index, winner in enumerate(winners):
-                payouts[winner] += share + (1 if index < remainder else 0)
-
-        if sum(payouts.values()) != pot:
-            raise ConflictError("side-pot payout calculation mismatch")
-        return payouts
+        return _calculate_showdown_payouts_in_conn(conn, table_id)
     finally:
         conn.close()
 
