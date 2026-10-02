@@ -525,8 +525,10 @@ def operator_diagnostics(
     _require_operator(x_operator_key)
     realtime = manager.diagnostics()
     realtime["outbox_backlog"] = realtime_outbox_backlog()
+    metadata = release_metadata()
     return {
-        "release": release_metadata(),
+        "release": metadata["release"],
+        "environment": metadata["environment"],
         "database": {
             "backend": database_backend(),
             "schema_version": schema_version(),
