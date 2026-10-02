@@ -523,37 +523,16 @@ def operator_diagnostics(
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> dict[str, Any]:
     _require_operator(x_operator_key)
-    conn = connect()
-    try:
-        pending_outbox = int(
-            conn.execute(
-                """
-                SELECT COUNT(*) AS count
-                FROM realtime_outbox
-                WHERE dispatched_at IS NULL
-                """
-            ).fetchone()["count"]
-        )
-    finally:
-        conn.close()
-
-    local_connections = sum(
-        len(sockets)
-        for sockets in manager.connections.values()
-    )
+    realtime = manager.diagnostics()
+    realtime["outbox_backlog"] = realtime_outbox_backlog()
     return {
-        **release_metadata(),
-        "schema_version": schema_version(),
-        "database_backend": database_backend(),
-        "database_pool": postgres_pool_stats(),
-        "realtime_coordination": manager.coordinator.diagnostics(),
-        "websocket": {
-            "local_connections": local_connections,
-            "tables_with_connections": len(manager.connections),
+        "release": release_metadata(),
+        "database": {
+            "backend": database_backend(),
+            "schema_version": schema_version(),
+            "pool": postgres_pool_stats(),
         },
-        "realtime_outbox": {
-            "pending": pending_outbox,
-        },
+        "realtime": realtime,
     }
 
 
