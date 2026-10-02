@@ -1,0 +1,86 @@
+name: release-candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit SHA to validate. Leave empty to use current ref.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  rc-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve candidate metadata
+        id: meta
+        shell: bash
+        run: |
+          SHA="${{ inputs.sha }}"
+          if [ -z "$SHA" ]; then
+            SHA="$(git rev-parse HEAD)"
+          fi
+          SCHEMA_VERSION="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path("backend/app/db.py").read_text()
+          match = re.search(r"SCHEMA_VERSION\s*=\s*(\d+)", text)
+          if not match:
+              raise SystemExit("schema version not found")
+          print(match.group(1))
+          PY
+          )"
+          FRONTEND_VERSION="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print(json.loads(Path("frontend/package.json").read_text())["version"])
+          PY
+          )"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "schema=$SCHEMA_VERSION" >> "$GITHUB_OUTPUT"
+          echo "frontend=$FRONTEND_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify same-SHA CI is green
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          mkdir -p release-candidate
+          python scripts/rc_gate.py \
+            --sha "${{ steps.meta.outputs.sha }}" \
+            --schema-version "${{ steps.meta.outputs.schema }}" \
+            --frontend-version "${{ steps.meta.outputs.frontend }}" \
+            --output release-candidate/manifest.json
+
+      - name: Add human-readable summary
+        run: |
+          {
+            echo "# INARENA Release Candidate"
+            echo
+            echo "- Commit: `${{ steps.meta.outputs.sha }}`"
+            echo "- Schema: v${{ steps.meta.outputs.schema }}"
+            echo "- Frontend: ${{ steps.meta.outputs.frontend }}"
+            echo "- CI gate: PASS"
+            echo
+            echo "See manifest.json for workflow/job evidence."
+          } > release-candidate/README.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inarena-rc-${{ steps.meta.outputs.sha }}
+          path: release-candidate/
+          if-no-files-found: error
+          retention-days: 30
