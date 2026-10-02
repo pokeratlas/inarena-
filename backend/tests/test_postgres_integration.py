@@ -120,7 +120,7 @@ def test_postgres_schema_metadata_upgrades(monkeypatch):
         db.ensure_schema()
         conn = db.connect()
         try:
-            conn.execute_raw("DROP TABLE IF EXISTS mutation_receipts")
+            conn.execute_raw("DROP TABLE IF EXISTS operator_sessions")
             conn.execute_raw(
                 "UPDATE inarena_schema_meta SET version = %s",
                 (db.SCHEMA_VERSION - 1,),
@@ -137,10 +137,10 @@ def test_postgres_schema_metadata_upgrades(monkeypatch):
         try:
             exists = conn.execute_raw(
                 """
-                SELECT to_regclass('public.mutation_receipts') AS relation
+                SELECT to_regclass('public.operator_sessions') AS relation
                 """
             ).fetchone()
-            assert exists["relation"] == "mutation_receipts"
+            assert exists["relation"] == "operator_sessions"
         finally:
             conn.close()
     finally:
