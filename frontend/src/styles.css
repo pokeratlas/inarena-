@@ -648,3 +648,92 @@ button {
   font-size: 11px;
   font-weight: 800;
 }
+
+
+/* Closed-beta visual QA hardening */
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.app-shell {
+  padding-left: max(14px, env(safe-area-inset-left));
+  padding-right: max(14px, env(safe-area-inset-right));
+}
+
+.operator-shell {
+  width: min(100%, 1100px);
+}
+
+.lobby-card,
+.seat-card,
+.operator-table-card,
+.operator-metrics article {
+  min-width: 0;
+}
+
+.lobby-card strong,
+.lobby-card span,
+.seat-card strong,
+.seat-card p,
+.operator-table-card strong,
+.operator-table-card span {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.seat-card strong {
+  display: block;
+  line-height: 1.2;
+}
+
+@media (max-width: 370px) {
+  .brand-mark {
+    font-size: 22px;
+  }
+
+  .app-header h1,
+  .table-header h2 {
+    font-size: 30px;
+  }
+
+  .poker-table {
+    padding-inline: 12px;
+    gap: 10px;
+  }
+
+  .seat-card {
+    padding: 11px 10px;
+  }
+
+  .player-actions {
+    padding: 12px;
+    gap: 8px;
+  }
+
+  .action-button {
+    min-height: 46px;
+    font-size: 12px;
+  }
+
+  .bet-presets {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 720px) {
+  .operator-shell {
+    padding-inline: 32px;
+  }
+
+  .operator-dashboard .operator-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .operator-dashboard .operator-tables {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
