@@ -50,6 +50,73 @@ def _request_fingerprint(payload: dict) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def build_mutation_receipt_context(
+    user_id: str,
+    operation: str,
+    idempotency_key: str,
+    request_payload: dict,
+) -> dict:
+    return {
+        "user_id": user_id,
+        "operation": operation,
+        "idempotency_key": idempotency_key,
+        "request_fingerprint": _request_fingerprint(request_payload),
+    }
+
+
+def _store_mutation_receipt_in_conn(
+    conn,
+    context: dict | None,
+    response: dict,
+) -> None:
+    if context is None:
+        return
+    conn.execute(
+        """
+        INSERT INTO mutation_receipts(
+            user_id, operation, idempotency_key,
+            request_fingerprint, response_json
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, operation, idempotency_key)
+        DO UPDATE SET
+            response_json = excluded.response_json
+        """,
+        (
+            context["user_id"],
+            context["operation"],
+            context["idempotency_key"],
+            context["request_fingerprint"],
+            json.dumps(response, separators=(",", ":")),
+        ),
+    )
+
+
+def recover_mutation_receipt(
+    user_id: str,
+    operation: str,
+    idempotency_key: str,
+    request_payload: dict,
+) -> dict | None:
+    fingerprint = _request_fingerprint(request_payload)
+    conn = connect()
+    try:
+        row = conn.execute(
+            """
+            SELECT request_fingerprint, response_json
+            FROM mutation_receipts
+            WHERE user_id = ? AND operation = ? AND idempotency_key = ?
+            """,
+            (user_id, operation, idempotency_key),
+        ).fetchone()
+        if row is None:
+            return None
+        if row["request_fingerprint"] != fingerprint:
+            raise ConflictError("idempotency key reused with different request")
+        return json.loads(row["response_json"])
+    finally:
+        conn.close()
+
+
 def reserve_idempotency_command(
     user_id: str,
     operation: str,
@@ -1225,6 +1292,7 @@ def claim_seat_reservation(
     session_id: str,
     reservation_id: str,
     stack: int,
+    mutation_receipt: dict | None = None,
 ) -> dict:
     session = get_session(session_id)
     user_id = session["user_id"]
@@ -1844,6 +1912,7 @@ def submit_player_action(
     action: str,
     expected_action_no: int,
     amount: int | None = None,
+    mutation_receipt: dict | None = None,
 ) -> dict:
     allowed = {"fold", "check", "call", "bet", "raise"}
     if action not in allowed:
@@ -2128,6 +2197,11 @@ def submit_player_action(
 
         _enqueue_realtime_outbox(conn, table_id, event_type)
         result = _get_table_state_with_conn(conn, table_id)
+        _store_mutation_receipt_in_conn(
+            conn,
+            mutation_receipt,
+            result,
+        )
 
     return result
 
@@ -2187,6 +2261,7 @@ def submit_player_action_with_session(
     action: str,
     expected_action_no: int,
     amount: int | None = None,
+    mutation_receipt: dict | None = None,
 ) -> dict:
     session = get_session(session_id)
     return submit_player_action(
@@ -2195,6 +2270,7 @@ def submit_player_action_with_session(
         action,
         expected_action_no,
         amount,
+        mutation_receipt,
     )
 
 
@@ -2904,7 +2980,11 @@ def tournament_addon(table_id: str, session_id: str) -> dict:
     return get_table_state(table_id)
 
 
-def stand_with_session(table_id: str, session_id: str) -> dict:
+def stand_with_session(
+    table_id: str,
+    session_id: str,
+    mutation_receipt: dict | None = None,
+) -> dict:
     session = get_session(session_id)
     player_id = session["user_id"]
 
@@ -2958,7 +3038,13 @@ def stand_with_session(table_id: str, session_id: str) -> dict:
         )
         _assign_waitlist_reservations_in_conn(conn, table_id)
         _enqueue_realtime_outbox(conn, table_id, "player_stood")
-    return get_table_state(table_id)
+        result = _get_table_state_with_conn(conn, table_id)
+        _store_mutation_receipt_in_conn(
+            conn,
+            mutation_receipt,
+            result,
+        )
+    return result
 
 
 def join_table_with_session(
@@ -2966,6 +3052,7 @@ def join_table_with_session(
     session_id: str,
     seat_no: int,
     stack: int,
+    mutation_receipt: dict | None = None,
 ) -> dict:
     session = get_session(session_id)
     player_id = session["user_id"]
@@ -3051,7 +3138,13 @@ def join_table_with_session(
             (table_id, player_id, resolved_stack),
         )
         _enqueue_realtime_outbox(conn, table_id, "player_joined")
-    return get_table_state(table_id)
+        result = _get_table_state_with_conn(conn, table_id)
+        _store_mutation_receipt_in_conn(
+            conn,
+            mutation_receipt,
+            result,
+        )
+    return result
 
 
 def get_player_table_view(table_id: str, session_id: str) -> dict:
