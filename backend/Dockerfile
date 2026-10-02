@@ -9,6 +9,7 @@ WORKDIR /app
 
 COPY pyproject.toml /app/pyproject.toml
 COPY app /app/app
+COPY entrypoint.sh /app/entrypoint.sh
 
 RUN python -m pip install --upgrade pip \
     && pip install ".[production]" \
