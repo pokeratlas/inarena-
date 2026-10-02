@@ -9,6 +9,7 @@ import {
   getCurrentSession,
   getOperatorAudit,
   getOperatorDashboard,
+  getReleaseMetadata,
   getTournamentRegistration,
   getHandActions,
   getHandHistory,
@@ -1029,6 +1030,127 @@ function OnlineLobby({
   );
 }
 
+function DiagnosticsView({
+  telegramStatus,
+  session,
+}: {
+  telegramStatus: "idle" | "authenticating" | "authenticated" | "unavailable" | "error";
+  session: AuthSession | null;
+}) {
+  const [release, setRelease] = useState<{ release: string; environment: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const webApp = window.Telegram?.WebApp;
+
+  useEffect(() => {
+    let active = true;
+    getReleaseMetadata()
+      .then((metadata) => {
+        if (active) setRelease(metadata);
+      })
+      .catch(() => {
+        if (active) setRelease(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const payload = {
+    release: release?.release ?? "unknown",
+    environment: release?.environment ?? "unknown",
+    telegram: {
+      available: Boolean(webApp),
+      initDataPresent: Boolean(webApp?.initData),
+      platform: webApp?.platform ?? "unknown",
+      version: webApp?.version ?? "unknown",
+      colorScheme: webApp?.colorScheme ?? "unknown",
+      isExpanded: webApp?.isExpanded ?? null,
+      viewportHeight: webApp?.viewportHeight ?? null,
+      viewportStableHeight: webApp?.viewportStableHeight ?? null,
+    },
+    browser: {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      devicePixelRatio: window.devicePixelRatio,
+      language: navigator.language,
+      userAgent: navigator.userAgent,
+      online: navigator.onLine,
+    },
+    session: {
+      status: telegramStatus,
+      authenticated: Boolean(session),
+      provider: session?.provider ?? null,
+    },
+  };
+
+  return (
+    <main className="app-main diagnostics-page">
+      <header className="app-header">
+        <p>INARENA BETA</p>
+        <h1>Device diagnostics</h1>
+      </header>
+
+      <section className="diagnostics-grid">
+        <article>
+          <strong>Release</strong>
+          <span>{payload.release}</span>
+          <span>{payload.environment}</span>
+        </article>
+        <article>
+          <strong>Telegram</strong>
+          <span>{payload.telegram.available ? "available" : "unavailable"}</span>
+          <span>{payload.telegram.platform} · {payload.telegram.version}</span>
+          <span>{payload.telegram.colorScheme}</span>
+        </article>
+        <article>
+          <strong>Viewport</strong>
+          <span>{payload.browser.viewportWidth} × {payload.browser.viewportHeight}</span>
+          <span>DPR {payload.browser.devicePixelRatio}</span>
+          <span>
+            Telegram {payload.telegram.viewportHeight ?? "—"} /
+            {payload.telegram.viewportStableHeight ?? "—"}
+          </span>
+        </article>
+        <article>
+          <strong>Session</strong>
+          <span>{payload.session.status}</span>
+          <span>{payload.session.authenticated ? "authenticated" : "not authenticated"}</span>
+          <span>{payload.session.provider ?? "—"}</span>
+        </article>
+        <article>
+          <strong>Network</strong>
+          <span>{payload.browser.online ? "online" : "offline"}</span>
+          <span>{payload.browser.language}</span>
+        </article>
+      </section>
+
+      <details className="diagnostics-raw">
+        <summary>Technical payload</summary>
+        <pre>{JSON.stringify(payload, null, 2)}</pre>
+      </details>
+
+      <button
+        className="action-button action-primary"
+        type="button"
+        onClick={() => {
+          void navigator.clipboard
+            .writeText(JSON.stringify(payload, null, 2))
+            .then(() => setCopied(true))
+            .catch(() => setCopied(false));
+        }}
+      >
+        {copied ? "Скопировано" : "Копировать диагностику"}
+      </button>
+
+      <p className="diagnostics-note">
+        Экран намеренно не показывает Telegram initData, session ID,
+        operator token или закрытые карты.
+      </p>
+    </main>
+  );
+}
+
+
 function OperatorDashboardView() {
   const [operatorKey, setOperatorKey] = useState(
     () => window.sessionStorage.getItem("inarena_operator_token") ?? "",
@@ -1355,12 +1477,28 @@ function OfflineHome() {
 }
 
 export default function App() {
-  const operatorMode =
-    new URLSearchParams(window.location.search).get("operator") === "1";
+  const params = new URLSearchParams(window.location.search);
+  const operatorMode = params.get("operator") === "1";
+  const diagnosticsMode = params.get("diagnostics") === "1";
   const [mode, setMode] = useState<AppMode>("offline");
   const telegram = useTelegramSession();
   const [tableScreenOpen, setTableScreenOpen] = useState(false);
   const tabs = mode === "online" ? onlineTabs : offlineTabs;
+
+  if (diagnosticsMode) {
+    return (
+      <div className="app-shell">
+        <div className="brand-row">
+          <span className="brand-mark">INARENA</span>
+          <span className="status-dot" aria-hidden="true" />
+        </div>
+        <DiagnosticsView
+          telegramStatus={telegram.status}
+          session={telegram.session}
+        />
+      </div>
+    );
+  }
 
   if (operatorMode) {
     return (
