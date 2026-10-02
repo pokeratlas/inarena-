@@ -548,7 +548,7 @@ def ready() -> dict[str, Any]:
             missing.append("INARENA_OPERATOR_KEY")
         if os.getenv("INARENA_ENABLE_LEGACY_API") == "1":
             missing.append("INARENA_ENABLE_LEGACY_API must be disabled")
-        if "*" in cors_origins():
+        if "*" in allowed_origins():
             missing.append("INARENA_CORS_ORIGINS must not contain wildcard")
         origins = allowed_origins()
         if not origins:
