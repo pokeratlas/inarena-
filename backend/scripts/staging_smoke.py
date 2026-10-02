@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import urllib.error
 import urllib.request
 from urllib.parse import urlparse
@@ -74,6 +75,10 @@ def main() -> int:
     with ws_connect(
         websocket_url(args.base_url, f"/ws/tables/{table_id}"),
         open_timeout=10,
+        origin=os.getenv(
+            "INARENA_SMOKE_ORIGIN",
+            "http://staging.local",
+        ),
     ) as socket:
         message = json.loads(socket.recv(timeout=10))
         assert message["type"] == "table_snapshot", message
