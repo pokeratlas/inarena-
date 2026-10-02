@@ -165,6 +165,8 @@ class RateLimiter:
             except Exception:
                 pass
             self._redis = None
+        async with self._lock:
+            self._local.clear()
 
 
 rate_limiter = RateLimiter()
