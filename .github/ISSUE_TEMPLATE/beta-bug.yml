@@ -1,0 +1,90 @@
+name: Closed Beta Bug
+description: Report a reproducible INARENA closed-beta defect
+title: "[BETA BUG] "
+labels:
+  - beta
+  - bug
+body:
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - P0 - data/chip/security integrity
+        - P1 - core flow blocked
+        - P2 - degraded but workaround exists
+        - P3 - cosmetic/minor
+    validations:
+      required: true
+
+  - type: input
+    id: release
+    attributes:
+      label: Release / commit
+      description: Copy from ?diagnostics=1 when available.
+      placeholder: commit SHA or release identifier
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Product surface
+      options:
+        - Player - OFFLINE
+        - Player - ONLINE lobby
+        - Player - live table
+        - Tournament
+        - Cash table
+        - Operator dashboard
+        - Authentication/session
+        - Realtime/reconnect
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device / browser / Telegram
+      placeholder: iPhone 15 / iOS 18 / Telegram 12.x
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open...
+        2. Tap...
+        3. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Safe diagnostics
+      description: Paste only the privacy-safe payload from ?diagnostics=1. Never include Telegram initData, session IDs, operator tokens or private cards.
+      render: json
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots / screen recording / request ID
+      description: Attach evidence and include X-Request-ID when shown.
