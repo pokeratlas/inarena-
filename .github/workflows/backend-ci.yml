@@ -135,6 +135,8 @@ jobs:
       INARENA_REDIS_URL: redis://localhost:6379/0
       INARENA_ENV: staging
       INARENA_OPERATOR_KEY: staging-operator
+      INARENA_ALLOWED_ORIGINS: http://staging.local
+      INARENA_SMOKE_ORIGIN: http://staging.local
       INARENA_DB_POOL_MIN: 1
       INARENA_DB_POOL_MAX: 4
 
