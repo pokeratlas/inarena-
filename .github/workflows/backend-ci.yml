@@ -171,3 +171,81 @@ jobs:
       - name: Show backend log on failure
         if: failure()
         run: cat /tmp/inarena-staging.log || true
+
+
+  load-smoke:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: inarena
+          POSTGRES_PASSWORD: inarena
+          POSTGRES_DB: inarena_load
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U inarena -d inarena_load"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      INARENA_DATABASE_URL: postgresql://inarena:inarena@localhost:5432/inarena_load
+      INARENA_REDIS_URL: redis://localhost:6379/0
+      INARENA_ENV: staging
+      INARENA_OPERATOR_KEY: load-operator
+      INARENA_ALLOWED_ORIGINS: http://staging.local
+      INARENA_RATE_LIMIT_WS_PER_MINUTE: 200
+      INARENA_DB_POOL_MIN: 1
+      INARENA_DB_POOL_MAX: 8
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[production]"
+      - name: Start backend
+        run: |
+          sh entrypoint.sh > /tmp/inarena-load.log 2>&1 &
+          echo $! > /tmp/inarena-load.pid
+      - name: Wait for readiness
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/inarena-load.log
+          exit 1
+      - name: Create scoped operator session and load-test table
+        run: |
+          TOKEN=$(curl -fsS             -H 'Content-Type: application/json'             -H 'X-Operator-Key: load-operator'             -d '{"scopes":[]}'             http://127.0.0.1:8000/api/v1/operator/auth             | python -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+          TABLE_ID=$(curl -fsS             -H 'Content-Type: application/json'             -H "X-Operator-Key: $TOKEN"             -d '{"name":"Load Test"}'             http://127.0.0.1:8000/api/v1/operator/tables             | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          echo "TABLE_ID=$TABLE_ID" >> "$GITHUB_ENV"
+      - name: Run k6 load baseline
+        working-directory: .
+        run: |
+          docker run --rm --network host             -e BASE_URL=http://127.0.0.1:8000             -e WS_BASE_URL=ws://127.0.0.1:8000             -e TABLE_ID="$TABLE_ID"             -e ORIGIN=http://staging.local             -v "$GITHUB_WORKSPACE:/work"             grafana/k6:latest run /work/load/inarena.js
+      - name: Show backend log on failure
+        if: failure()
+        run: cat /tmp/inarena-load.log || true
