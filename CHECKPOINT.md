@@ -187,3 +187,35 @@ Acceptance criteria:
 6. Redis outage must not corrupt poker/ledger state.
 7. Single-instance mode continues to work without Redis.
 8. Redis connectivity/coordination status is surfaced in readiness diagnostics.
+
+
+## PostgreSQL pool milestone
+Verified:
+- bounded PostgreSQL connection pool;
+- configurable min/max/acquisition timeout;
+- application startup opens and validates the pool;
+- application shutdown closes the pool;
+- readiness reports database backend and pool diagnostics;
+- PostgreSQL pool integration CI: PASS.
+
+## Redis realtime coordination milestone
+Verified:
+- Redis remains non-authoritative;
+- PostgreSQL/outbox remains the realtime source of truth;
+- optional Redis pub/sub fans committed events across backend instances;
+- source instance IDs prevent self-duplicate delivery;
+- remote backend instances forward events only to their local WebSocket clients;
+- single-instance/no-Redis mode remains functional;
+- Redis diagnostics are exposed through readiness;
+- two-instance Redis integration test: PASS;
+- Redis outage cannot roll back or mutate committed poker/ledger state.
+
+## Next reliability bounded feature
+### Crash-safe idempotency completion
+Current durable command reservation prevents concurrent duplicate execution, but a process crash after business commit and before command completion can leave an idempotency key in `in_progress`.
+
+Target:
+1. Couple idempotency completion to the same transaction as critical business mutations where practical.
+2. For unavoidable split flows, persist an authoritative mutation/result reference that can reconcile an interrupted command.
+3. Never blindly re-execute a chip-moving command whose prior outcome is unknown.
+4. Add restart/crash regression tests for buy-in, cash-out, reservation claim and player action.
