@@ -21,3 +21,5 @@ jobs:
           cache-dependency-path: frontend/package.json
       - run: npm install
       - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
