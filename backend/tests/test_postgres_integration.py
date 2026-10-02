@@ -82,6 +82,7 @@ def test_postgres_production_readiness(monkeypatch):
     monkeypatch.delenv("INARENA_DB_PATH", raising=False)
     monkeypatch.setenv("INARENA_ENV", "production")
     monkeypatch.setenv("INARENA_OPERATOR_KEY", "operator")
+    monkeypatch.setenv("INARENA_ALLOWED_ORIGINS", "https://app.example")
     monkeypatch.delenv("INARENA_ENABLE_LEGACY_API", raising=False)
 
     import app.db as db
