@@ -9,7 +9,7 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = [
-  "psycopg[binary]>=3.2,<4",
+  "psycopg[binary,pool]>=3.2,<4",
 ]
 dev = [
   "pytest>=8,<9",
