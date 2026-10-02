@@ -301,6 +301,9 @@ export async function getOperatorDashboard(
   const response = await fetch(`${API_BASE}/api/v1/operator/dashboard`, {
     headers: { "X-Operator-Key": operatorKey },
   });
+  if (response.status === 401) {
+    throw new Error("Operator session expired or unauthorized");
+  }
   if (!response.ok) throw new Error("Operator access denied");
   return response.json();
 }
@@ -411,6 +414,9 @@ export async function getOperatorAudit(
   const response = await fetch(url, {
     headers: { "X-Operator-Key": operatorKey },
   });
+  if (response.status === 401) {
+    throw new Error("Operator session expired or unauthorized");
+  }
   if (!response.ok) throw new Error("Unable to load operator audit");
   return response.json();
 }
