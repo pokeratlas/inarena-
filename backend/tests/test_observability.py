@@ -71,7 +71,8 @@ def test_operator_diagnostics_contract(tmp_path, monkeypatch):
         assert response.status_code == 200
         body = response.json()
 
-        assert body["release"]["release"] == "test-release-123"
+        assert body["release"] == "test-release-123"
+        assert body["environment"] == "test"
         assert body["database"]["backend"] == "sqlite"
         assert body["database"]["schema_version"] >= 14
         assert body["database"]["pool"] is None
