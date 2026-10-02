@@ -11,7 +11,7 @@ from typing import Any, Iterator
 from .postgres_schema import POSTGRES_SCHEMA_STATEMENTS, POSTGRES_SCHEMA_VERSION
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 _postgres_pool = None
 _postgres_pool_lock = threading.Lock()
@@ -600,6 +600,25 @@ def _migration_13(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_14(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS mutation_receipts (
+            user_id TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            request_fingerprint TEXT NOT NULL,
+            response_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, operation, idempotency_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mutation_receipts_created_at
+        ON mutation_receipts(created_at);
+        """
+    )
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
@@ -614,6 +633,7 @@ MIGRATIONS = {
     11: _migration_11,
     12: _migration_12,
     13: _migration_13,
+    14: _migration_14,
 }
 
 
@@ -631,11 +651,16 @@ def _ensure_postgres_schema() -> None:
                 "INSERT INTO inarena_schema_meta(version) VALUES (%s)",
                 (POSTGRES_SCHEMA_VERSION,),
             )
-        elif int(row["version"]) != POSTGRES_SCHEMA_VERSION:
+        elif int(row["version"]) > POSTGRES_SCHEMA_VERSION:
             raise RuntimeError(
                 "PostgreSQL schema version "
-                f"{row['version']} does not match supported "
+                f"{row['version']} is newer than supported "
                 f"{POSTGRES_SCHEMA_VERSION}"
+            )
+        elif int(row["version"]) < POSTGRES_SCHEMA_VERSION:
+            conn.execute_raw(
+                "UPDATE inarena_schema_meta SET version = %s",
+                (POSTGRES_SCHEMA_VERSION,),
             )
         conn.commit()
     except Exception:
