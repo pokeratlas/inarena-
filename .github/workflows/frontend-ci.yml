@@ -23,3 +23,70 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
+
+
+  fullstack-e2e:
+    runs-on: ubuntu-latest
+
+    env:
+      INARENA_DB_PATH: /tmp/inarena-fullstack.sqlite3
+      INARENA_ENV: staging
+      INARENA_OPERATOR_KEY: fullstack-operator
+      INARENA_ALLOWED_ORIGINS: http://127.0.0.1:4174
+      INARENA_ENABLE_LEGACY_API: "1"
+      INARENA_RATE_LIMIT_OPERATOR_PER_MINUTE: "500"
+      INARENA_RATE_LIMIT_PLAYER_PER_MINUTE: "500"
+      INARENA_RATE_LIMIT_WS_PER_MINUTE: "500"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install backend
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Start backend
+        working-directory: backend
+        run: |
+          uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/inarena-fullstack.log 2>&1 &
+          echo $! > /tmp/inarena-fullstack.pid
+
+      - name: Wait for backend
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/inarena-fullstack.log
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package.json
+
+      - name: Install frontend
+        working-directory: frontend
+        run: npm install
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run full-stack browser E2E
+        working-directory: frontend
+        run: npm run e2e:fullstack
+
+      - name: Show backend log on failure
+        if: failure()
+        run: cat /tmp/inarena-fullstack.log || true
