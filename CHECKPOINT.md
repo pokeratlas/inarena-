@@ -294,3 +294,37 @@ Acceptance criteria:
 6. Production log level is environment-configurable.
 7. A release metadata endpoint exposes commit/release identifier without secrets.
 8. CI covers request-ID propagation and diagnostics contracts.
+
+
+## Observability + release diagnostics milestone
+Verified:
+- structured JSON request logs;
+- request ID generation/validation and response propagation;
+- request ID included in controlled error responses;
+- logs exclude request bodies and sensitive authentication headers;
+- environment-configurable log level;
+- public release metadata endpoint;
+- operator-only runtime diagnostics;
+- diagnostics include:
+  - release/environment;
+  - database backend/schema/pool;
+  - Redis coordination;
+  - local WebSocket connection count;
+  - realtime outbox backlog;
+- SQLite observability regression suite: PASS;
+- PostgreSQL integration: PASS;
+- Redis integration: PASS;
+- staging smoke: PASS;
+- frontend CI: PASS.
+
+## Next bounded feature
+### Production security perimeter
+Acceptance criteria:
+1. Explicit CORS allowlist; production must not default to wildcard origins.
+2. Standard security headers on HTTP responses.
+3. Configurable request body size ceiling for JSON mutation endpoints.
+4. Per-IP / per-session rate limiting for auth and player mutation endpoints.
+5. WebSocket origin validation and connection-rate protection.
+6. Operator endpoints have stricter rate limits than public reads.
+7. Rate-limit storage may use Redis but failure must not corrupt game state.
+8. Security controls have regression tests and staging smoke coverage.
