@@ -61,7 +61,18 @@ def main() -> int:
     )
     assert status == 401, status
 
-    operator_headers = {"X-Operator-Key": args.operator_key}
+    status, session = request(
+        args.base_url,
+        "/api/v1/operator/auth",
+        method="POST",
+        body={"scopes": []},
+        headers={"X-Operator-Key": args.operator_key},
+    )
+    assert status == 200, (status, session)
+    token = session["token"]
+    assert token.startswith("ops_")
+
+    operator_headers = {"X-Operator-Key": token}
     status, table = request(
         args.base_url,
         "/api/v1/operator/tables",
