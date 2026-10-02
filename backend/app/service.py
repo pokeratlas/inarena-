@@ -1387,7 +1387,13 @@ def claim_seat_reservation(
             (table_id, user_id),
         )
         _enqueue_realtime_outbox(conn, table_id, "seat_reservation_claimed")
-    return get_table_state(table_id)
+        result = _get_table_state_with_conn(conn, table_id)
+        _store_mutation_receipt_in_conn(
+            conn,
+            mutation_receipt,
+            result,
+        )
+    return result
 
 
 def report_table_ledger(table_id: str) -> list[dict]:
