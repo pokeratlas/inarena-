@@ -589,3 +589,32 @@ Proceed only with:
 2. real Telegram Mini App device dry run;
 3. hosted PostgreSQL backup/restore verification;
 4. blocker/critical fixes found by those runs.
+
+
+## Closed Beta RC1 freeze
+Frozen release branch:
+- `release/closed-beta-rc1`
+
+Frozen commit:
+- `3761901c4ceff48d6cd187308e8e50cf144753a6`
+
+Verified on that commit:
+- backend CI: PASS;
+- frontend CI: PASS;
+- Render full-stack Blueprint present;
+- hosted backup/restore drill documented;
+- staging launch runbook documented.
+
+Manifest:
+- `docs/RC1_MANIFEST.md`
+
+## Current phase
+Engineering build is frozen for RC1.
+
+Only these workstreams remain active:
+1. public HTTPS staging deployment;
+2. real Telegram Mini App dry run on iPhone and Android;
+3. hosted PostgreSQL backup/restore drill;
+4. P0/P1 blocker fixes discovered by those gates.
+
+No new core backend or product features should be added to RC1.
