@@ -437,3 +437,42 @@ Acceptance criteria:
 5. Validate operator dashboard desktop/mobile behavior.
 6. Add visual regression screenshots for approved Concept 2 states.
 7. Resolve critical visual/interaction issues before first internal dry run.
+
+
+## Visual QA + full-stack beta gate milestone
+Verified on current release line:
+- approved ONLINE navigation label: Лобби | Игра | Профиль;
+- mobile shell hardened for 360 / 390 / 430 px;
+- no horizontal overflow in Playwright multi-viewport checks;
+- safe-area aware shell padding;
+- long table/player/operator text wraps safely;
+- compact controls for 360 px;
+- operator dashboard expands beyond 430 px on desktop;
+- desktop operator metrics/tables use wider responsive grids;
+- full-stack browser E2E against real backend: PASS;
+- operator bootstrap -> scoped session -> dashboard restore: PASS;
+- persisted player session restore -> ONLINE lobby -> cash seating: PASS;
+- backend seat/stack verification from browser flow: PASS;
+- Playwright browser smoke: PASS;
+- frontend CI: PASS;
+- backend/property suite: PASS;
+- PostgreSQL integration: PASS;
+- Redis integration: PASS;
+- staging smoke: PASS;
+- k6 load baseline: PASS;
+- production container build: PASS.
+
+## Current readiness estimate
+- technical MVP: ~88%;
+- closed-beta readiness: ~85%;
+- public production readiness: ~70%.
+
+## Next phase
+### Internal dry run + UX polish
+Priority:
+1. Run full cash-table dry run with 2–6 controlled players.
+2. Run full tournament dry run from registration to winner.
+3. Capture UX friction and operator interventions.
+4. Fix only blocker/critical issues during beta freeze.
+5. Complete visual polish and accessibility pass.
+6. Publish public staging/preview when hosting access is available.
