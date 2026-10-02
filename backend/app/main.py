@@ -12,6 +12,7 @@ from fastapi import FastAPI, Header, HTTPException, Request, Response, WebSocket
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 
 from .db import (
     close_database_pool,
@@ -28,6 +29,7 @@ from .observability import (
     release_metadata,
 )
 from .realtime_coordination import RedisRealtimeCoordinator
+from .security import SecurityHeadersMiddleware, cors_origins
 from .security import (
     RateLimitMiddleware,
     RequestBodyLimitMiddleware,
@@ -548,6 +550,8 @@ def ready() -> dict[str, Any]:
             missing.append("INARENA_OPERATOR_KEY")
         if os.getenv("INARENA_ENABLE_LEGACY_API") == "1":
             missing.append("INARENA_ENABLE_LEGACY_API must be disabled")
+        if "*" in cors_origins():
+            missing.append("INARENA_CORS_ORIGINS must not contain wildcard")
         origins = allowed_origins()
         if not origins:
             missing.append("INARENA_ALLOWED_ORIGINS")
