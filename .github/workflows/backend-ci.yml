@@ -249,3 +249,75 @@ jobs:
       - name: Show backend log on failure
         if: failure()
         run: cat /tmp/inarena-load.log || true
+
+
+  backup-restore-drill:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: inarena
+          POSTGRES_PASSWORD: inarena
+          POSTGRES_DB: inarena_backup
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U inarena -d inarena_backup"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      INARENA_DATABASE_URL: postgresql://inarena:inarena@localhost:5432/inarena_backup
+      INARENA_ENV: test
+      INARENA_OPERATOR_KEY: backup-operator
+      PGPASSWORD: inarena
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[production]"
+
+      - name: Migrate source database
+        run: python -m app.migrate upgrade
+
+      - name: Seed meaningful INARENA state
+        run: python scripts/backup_restore_fixture.py seed
+
+      - name: Create and validate backup
+        run: |
+          pg_dump             --format=custom             --no-owner             --no-acl             "$INARENA_DATABASE_URL"             > /tmp/inarena-backup.dump
+          pg_restore --list /tmp/inarena-backup.dump > /dev/null
+          sha256sum /tmp/inarena-backup.dump
+
+      - name: Create clean restore database
+        run: |
+          psql             "postgresql://inarena:inarena@localhost:5432/postgres"             -v ON_ERROR_STOP=1             -c "DROP DATABASE IF EXISTS inarena_restore;"
+          psql             "postgresql://inarena:inarena@localhost:5432/postgres"             -v ON_ERROR_STOP=1             -c "CREATE DATABASE inarena_restore;"
+
+      - name: Restore backup
+        run: |
+          pg_restore             --no-owner             --no-acl             --dbname="postgresql://inarena:inarena@localhost:5432/inarena_restore"             /tmp/inarena-backup.dump
+
+      - name: Verify restored schema and data
+        env:
+          INARENA_DATABASE_URL: postgresql://inarena:inarena@localhost:5432/inarena_restore
+        run: |
+          python -m app.migrate check
+          python scripts/backup_restore_fixture.py verify
