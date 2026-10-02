@@ -12,6 +12,9 @@
 - INARENA_SESSION_TTL_SECONDS
 - INARENA_LOG_LEVEL
 - INARENA_ENV
+- INARENA_DB_POOL_MIN
+- INARENA_DB_POOL_MAX
+- INARENA_DB_POOL_TIMEOUT_SECONDS
 
 ## Modes
 `INARENA_ENV`:
@@ -39,3 +42,13 @@ Redis is initially reported separately and is not a hard readiness dependency un
 ## Secrets
 Secrets are environment/runtime secrets.
 They are never committed to Git or embedded into frontend bundles.
+
+
+## PostgreSQL pool
+Production defaults:
+- minimum connections: 2
+- maximum connections: 10
+- acquisition/startup timeout: 5 seconds
+
+Tune these values against the hosting provider connection limit.
+Each API transaction borrows a pooled connection and returns it when the transaction closes.
