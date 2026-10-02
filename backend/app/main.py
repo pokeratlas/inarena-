@@ -369,9 +369,10 @@ def _require_operator(
             detail="operator access is not configured",
         )
 
-    # Migration fallback: the bootstrap key still works directly until
-    # production rollout confirms all operator clients use scoped sessions.
-    if credential == expected:
+    environment = os.getenv("INARENA_ENV", "development").lower()
+    # Bootstrap direct access is retained only for local/test migration
+    # compatibility. Staging/production must exchange it for a scoped token.
+    if credential == expected and environment not in {"staging", "production"}:
         return
     if validate_operator_session(credential, required_scope):
         return
