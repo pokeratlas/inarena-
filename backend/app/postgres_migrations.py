@@ -20,7 +20,7 @@ POSTGRES_MIGRATIONS: dict[int, list[str]] = {
         CREATE INDEX IF NOT EXISTS idx_mutation_receipts_created_at
         ON mutation_receipts(created_at)
         """,
-    ],,
+    ],
     15: [
         """
         CREATE TABLE IF NOT EXISTS operator_sessions (
