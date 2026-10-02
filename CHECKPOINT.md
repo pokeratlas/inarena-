@@ -389,3 +389,51 @@ Acceptance criteria:
 6. Cash buy-in/join path is covered end-to-end without duplicate ledger movement.
 7. Browser reconnect preserves table state.
 8. A release-candidate checklist is generated and CI status is part of the gate.
+
+
+## Closed-beta readiness milestone
+Verified on current release line:
+- backend unit/integration suite: PASS;
+- property-based poker invariants: PASS;
+- PostgreSQL integration: PASS;
+- Redis integration: PASS;
+- staging smoke: PASS;
+- k6 load baseline: PASS;
+- production container build: PASS;
+- frontend build: PASS;
+- Playwright browser smoke: PASS;
+- Playwright full-stack browser E2E: PASS.
+
+Full-stack browser coverage now includes:
+- operator bootstrap -> scoped session exchange;
+- operator dashboard restore from sessionStorage;
+- real backend table creation;
+- persisted authenticated player session restore;
+- ONLINE lobby rendering real backend table;
+- internal chip balance display;
+- authenticated cash-table seating;
+- backend verification of resulting seat/stack.
+
+Release-candidate controls:
+- docs/RELEASE_CANDIDATE_CHECKLIST.md
+- docs/CLOSED_BETA_PLAN.md
+
+## Current product phase
+Closed Beta Readiness / UX & Visual QA.
+
+Backend feature expansion is frozen unless needed for:
+- blocker fixes;
+- correctness;
+- security;
+- completion of an already-approved core flow.
+
+## Next bounded feature
+### Visual QA + UX state hardening
+Acceptance criteria:
+1. Validate mobile layouts at 360 / 390 / 430 px.
+2. Validate safe areas and Telegram viewport behavior.
+3. Validate loading / empty / error / reconnect / expired-session states.
+4. Validate 2–9 seat table readability and long player names.
+5. Validate operator dashboard desktop/mobile behavior.
+6. Add visual regression screenshots for approved Concept 2 states.
+7. Resolve critical visual/interaction issues before first internal dry run.
