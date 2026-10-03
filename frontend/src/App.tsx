@@ -30,6 +30,8 @@ import {
   leaveCashWaitlist,
   listTables,
   registerTournament,
+  sitInAuthenticated,
+  sitOutAuthenticated,
   standAuthenticated,
   submitPlayerAction,
   tournamentAddon,
@@ -497,6 +499,38 @@ function TablePolicyControls({
         )
       ) : (
         <>
+          {seat.status === "seated" ? (
+            <button
+              className="action-button"
+              disabled={pending}
+              type="button"
+              onClick={() =>
+                void run(() => sitOutAuthenticated(table.id, sessionId))
+              }
+            >
+              Sit out
+            </button>
+          ) : seat.status === "sitting_out_next" ? (
+            <button className="action-button" disabled type="button">
+              Sit out после раздачи
+            </button>
+          ) : seat.status === "sitting_in_next" ? (
+            <button className="action-button" disabled type="button">
+              Вернётесь со следующей
+            </button>
+          ) : (
+            <button
+              className="action-button action-primary"
+              disabled={pending}
+              type="button"
+              onClick={() =>
+                void run(() => sitInAuthenticated(table.id, sessionId))
+              }
+            >
+              Вернуться в игру
+            </button>
+          )}
+
           <button
             className="action-button"
             disabled={pending || leaveAfterHand}
@@ -516,6 +550,21 @@ function TablePolicyControls({
           >
             {leaveAfterHand ? "Выход после раздачи…" : "Покинуть стол"}
           </button>
+
+          {seat.status === "sitting_out" ? (
+            <p className="action-state" role="status">
+              Вы пропускаете раздачи. Место и chips сохранены.
+            </p>
+          ) : seat.status === "sitting_out_next" ? (
+            <p className="action-state" role="status">
+              Текущую раздачу доигрываете, следующую пропустите.
+            </p>
+          ) : seat.status === "sitting_in_next" ? (
+            <p className="action-state" role="status">
+              Вы вернётесь за стол со следующей раздачи.
+            </p>
+          ) : null}
+
           {table.active_hand && leaveAfterHand ? (
             <p className="action-state" role="status">
               Вы покинете стол сразу после текущей раздачи.
