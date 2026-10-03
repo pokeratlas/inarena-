@@ -41,7 +41,9 @@ export function useTableRealtime(tableId: string | null) {
 
     let disposed = false;
     let retryTimer: number | null = null;
+    let pollTimer: number | null = null;
     let socket: WebSocket | null = null;
+    lastSeq.current = 0;
 
     const applyMessage = (message: SocketMessage) => {
       if (message.type === "table_snapshot") {
@@ -64,11 +66,14 @@ export function useTableRealtime(tableId: string | null) {
       }
     };
 
+    const refreshSnapshot = async () => {
+      const nextState = await getTable(tableId);
+      if (!disposed) setState(nextState);
+    };
+
     const connect = async () => {
       try {
-        if (!state) {
-          setState(await getTable(tableId));
-        }
+        await refreshSnapshot();
         if (disposed) return;
 
         socket = new WebSocket(tableWebSocketUrl(tableId));
@@ -98,10 +103,17 @@ export function useTableRealtime(tableId: string | null) {
     };
 
     void connect();
+    pollTimer = window.setInterval(() => {
+      void refreshSnapshot().catch(() => {
+        // WebSocket remains the primary transport; polling is a safety net
+        // for Telegram WebViews and transient mobile network gaps.
+      });
+    }, 1000);
 
     return () => {
       disposed = true;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
+      if (pollTimer !== null) window.clearInterval(pollTimer);
       socket?.close();
     };
   }, [tableId]);

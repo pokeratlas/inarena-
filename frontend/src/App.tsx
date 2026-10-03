@@ -176,9 +176,9 @@ function PlayerActions({
   const secondsLeft = deadline > 0 ? Math.max(0, deadline - nowEpoch) : null;
   const interactionLocked = pending || !connected || secondsLeft === 0;
   const currentBet = Number(hand.state.current_bet ?? 0);
-  const contributions =
-    (hand.state.contributions as Record<string, number> | undefined) ?? {};
-  const contribution = Number(contributions[playerSeat.player_id] ?? 0);
+  const streetContributions =
+    (hand.state.street_contributions as Record<string, number> | undefined) ?? {};
+  const contribution = Number(streetContributions[playerSeat.player_id] ?? 0);
   const facingBet = currentBet > contribution;
   const maxTarget = contribution + playerSeat.stack;
   const presetTargets = [
@@ -536,6 +536,14 @@ function OnlineTable({
         sessionId={sessionId}
         connected={connected}
       />
+      {table.active_hand &&
+      table.seats.some((seat) => seat.player_id === playerId) &&
+      table.seats.find((seat) => seat.player_id === playerId)?.seat_no !==
+        table.active_hand.action_seat ? (
+        <p className="action-state" role="status">
+          Ожидание хода соперника…
+        </p>
+      ) : null}
 
       <TablePolicyControls
         table={table}

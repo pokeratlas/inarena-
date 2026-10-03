@@ -329,6 +329,39 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+async def _start_next_cash_hand_after_delay(table_id: str) -> None:
+    # Keep the first hand operator-controlled. Once a real cash hand ends,
+    # continue the session automatically after a short leave window.
+    await asyncio.sleep(2)
+    try:
+        state = get_table_state(table_id)
+        funded = [
+            seat
+            for seat in state.get("seats", [])
+            if seat.get("status") == "seated" and int(seat.get("stack", 0)) > 0
+        ]
+        if (
+            state.get("table_mode") != "cash"
+            or state.get("status") != "open"
+            or state.get("active_hand") is not None
+            or len(funded) < 2
+        ):
+            return
+        start_hand(table_id)
+        await manager.broadcast_state(table_id, "hand_started")
+    except (ConflictError, NotFoundError):
+        return
+
+
+def _schedule_next_cash_hand(state: dict[str, Any]) -> None:
+    if (
+        state.get("table_mode") == "cash"
+        and state.get("status") == "open"
+        and state.get("active_hand") is None
+    ):
+        asyncio.create_task(_start_next_cash_hand_after_delay(str(state["id"])))
+
+
 @app.on_event("startup")
 async def startup() -> None:
     init_database_pool()
@@ -939,6 +972,7 @@ async def api_authenticated_player_action(
             state,
         )
         await manager.broadcast_state(table_id, "player_action")
+        _schedule_next_cash_hand(state)
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
@@ -1319,6 +1353,7 @@ async def operator_resolve_timeout(
     try:
         state = resolve_expired_action(table_id)
         await manager.broadcast_state(table_id, "action_timeout_resolved")
+        _schedule_next_cash_hand(state)
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
