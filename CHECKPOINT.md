@@ -655,3 +655,14 @@ No token, initData, user, hashes or signatures enter these diagnostics.
 Tests cover modern acceptance, signature tampering and diagnostic privacy.
 Same-SHA CI and staging promotion are required; the real device retry remains pending.
 Reference: https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+
+
+## Approved single-club owner table creation — 2026-10-04
+
+User approved a minimal Dashboard create-table control for the current single club.
+The form renders only after successful operator authentication, not in the player
+interface or logged-out Dashboard. Uses the existing operator:write endpoint;
+no new role model or multi-club ownership claims. Empty names and repeat clicks
+while creating are blocked; successful creation refreshes the Dashboard.
+Tests verify UI visibility, real creation and backend denial without write access.
+Owner bootstrap credentials remain private; future multi-club access needs club scoping.

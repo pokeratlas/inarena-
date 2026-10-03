@@ -188,3 +188,18 @@ def test_production_bootstrap_key_only_issues_scoped_sessions(
             headers={"X-Operator-Key": token},
         )
         assert scoped.status_code == 200
+
+
+def test_table_creation_requires_operator_write_scope(tmp_path, monkeypatch):
+    main, _ = load_app(tmp_path, monkeypatch)
+    with TestClient(main.app) as client:
+        auth = client.post("/api/v1/operator/auth", headers={"X-Operator-Key": "bootstrap-secret"}, json={"scopes": ["operator:read"]})
+        read_token = auth.json()["token"]
+        for headers in ({}, {"X-Operator-Key": "invalid"}, {"X-Operator-Key": read_token}):
+            denied = client.post("/api/v1/operator/tables", headers=headers, json={"name": "Forbidden table"})
+            assert denied.status_code == 401
+        assert client.get("/api/v1/tables").json() == []
+        auth = client.post("/api/v1/operator/auth", headers={"X-Operator-Key": "bootstrap-secret"}, json={"scopes": []})
+        created = client.post("/api/v1/operator/tables", headers={"X-Operator-Key": auth.json()["token"]}, json={"name": "Owner table"})
+        assert created.status_code == 201
+        assert created.json()["name"] == "Owner table"

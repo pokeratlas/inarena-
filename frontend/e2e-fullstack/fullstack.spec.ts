@@ -120,3 +120,25 @@ test("invalid persisted operator token is cleared and recovery is explicit", asy
     ),
   ).toBeNull();
 });
+
+
+test("only an authenticated operator can create a table from Dashboard", async ({ page, request }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Создать стол" })).toHaveCount(0);
+  await page.goto("/?operator=1");
+  await expect(page.getByRole("button", { name: "Создать стол" })).toHaveCount(0);
+  await page.getByPlaceholder("Bootstrap operator key").fill(BOOTSTRAP_KEY);
+  await page.getByRole("button", { name: "Получить сессию" }).click();
+  const createButton = page.getByRole("button", { name: "Создать стол", exact: true });
+  await expect(createButton).toBeVisible();
+  await expect(createButton).toBeDisabled();
+  await page.getByRole("textbox", { name: "Название стола" }).fill("   ");
+  await expect(createButton).toBeDisabled();
+  await page.getByRole("textbox", { name: "Название стола" }).fill("Owner-created beta table");
+  await createButton.click();
+  await expect(page.locator(".operator-table-card").filter({ hasText: "Owner-created beta table" })).toHaveCount(1);
+  const tables = await request.get(`${API}/api/v1/tables`);
+  expect((await tables.json()).filter((table: any) => table.name === "Owner-created beta table")).toHaveLength(1);
+  await page.getByRole("button", { name: "Выйти" }).click();
+  await expect(createButton).toHaveCount(0);
+});

@@ -23,6 +23,7 @@ import {
   operatorAdjustBalance,
   operatorBlindScheduleCommand,
   operatorCloseTable,
+  operatorCreateTable,
   operatorTournamentCommand,
   operatorWindowControl,
   leaveCashWaitlist,
@@ -1158,6 +1159,8 @@ function OperatorDashboardView() {
   const [bootstrapKey, setBootstrapKey] = useState("");
   const [dashboard, setDashboard] = useState<OperatorDashboard | null>(null);
   const [audit, setAudit] = useState<OperatorAuditEntry[]>([]);
+  const [tableName, setTableName] = useState("");
+  const [creatingTable, setCreatingTable] = useState(false);
   const [balanceUser, setBalanceUser] = useState("");
   const [balanceDelta, setBalanceDelta] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -1260,6 +1263,44 @@ function OperatorDashboardView() {
 
       {dashboard ? (
         <>
+          <form
+            className="operator-login operator-table-create"
+            aria-label="Создание стола"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (creatingTable || !tableName.trim()) return;
+              setCreatingTable(true);
+              setError(null);
+              void operatorCreateTable(tableName, operatorKey)
+                .then(async () => {
+                  setTableName("");
+                  await load();
+                })
+                .catch(async (cause) => {
+                  if (cause instanceof Error && cause.message.includes("expired or unauthorized")) {
+                    await load();
+                    return;
+                  }
+                  setError(cause instanceof Error ? cause.message : "Не удалось создать стол");
+                })
+                .finally(() => setCreatingTable(false));
+            }}
+          >
+            <input
+              aria-label="Название стола"
+              placeholder="Название стола"
+              value={tableName}
+              disabled={creatingTable}
+              onChange={(event) => setTableName(event.target.value)}
+            />
+            <button
+              className="action-button action-primary"
+              type="submit"
+              disabled={creatingTable || !tableName.trim()}
+            >
+              {creatingTable ? "Создание…" : "Создать стол"}
+            </button>
+          </form>
           <section className="operator-balance-control">
             <input
               placeholder="User ID"

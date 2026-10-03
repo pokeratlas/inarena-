@@ -522,6 +522,10 @@ button {
   gap: 10px;
 }
 
+.operator-table-create {
+  grid-template-columns: 1fr;
+}
+
 .operator-login input {
   min-height: 46px;
   border-radius: 14px;

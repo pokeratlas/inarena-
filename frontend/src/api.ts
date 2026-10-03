@@ -295,6 +295,17 @@ export async function revokeOperatorSession(
 }
 
 
+export async function operatorCreateTable(name: string, operatorKey: string): Promise<TableState> {
+  const response = await fetch(`${API_BASE}/api/v1/operator/tables`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Operator-Key": operatorKey },
+    body: JSON.stringify({ name: name.trim() }),
+  });
+  if (response.status === 401) throw new Error("Operator session expired or unauthorized");
+  if (!response.ok) throw new Error("Не удалось создать стол");
+  return response.json();
+}
+
 export async function getOperatorDashboard(
   operatorKey: string,
 ): Promise<OperatorDashboard> {
