@@ -694,3 +694,10 @@ Owner explicitly requested longer remembered login. Dashboard requests a fixed 3
 ## 2026-10-04 — owner hand start control
 
 Two staging players seated but active_hand remained null: start requires existing operator endpoint. Expose cash-table start only in authenticated Dashboard; pending and non-open states disable action; display server rejection. No automatic dealing, player privileges, backend source or schema changes. Fullstack covers insufficient players, two-player preflop with 150 blinds pot, disabled duplicate start and absence from player UI.
+
+
+## 2026-10-04 — two-player cash gameplay loop repaired
+
+Real staging play exposed two RC1 gaps after the owner-start control: player action controls could miss the hand state in Telegram WebView, and completed cash hands stopped at status=open. The repair keeps the first hand operator-controlled, adds a 1s table snapshot fallback alongside WebSocket realtime, uses street contributions for action UI decisions, shows an explicit waiting-for-opponent state, and schedules the next cash hand after a 2s leave window when at least two funded seated players remain. No schema or auth changes.
+
+Evidence: fullstack E2E now uses two isolated player browser contexts and verifies private hole cards, action controls only for the acting seat, observer waiting state, authenticated Fold completion, and automatic transition to a distinct next hand with status=playing and blinds posted. Frontend CI and all backend CI jobs passed on PR #9 before release merge.
