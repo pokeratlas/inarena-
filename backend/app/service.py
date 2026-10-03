@@ -3530,6 +3530,43 @@ def _get_table_state_with_conn(conn, table_id: str) -> dict:
         """,
         (table_id,),
     ).fetchall()
+
+    public_seats: list[dict] = []
+    for row in seats:
+        seat = dict(row)
+        session_row = conn.execute(
+            """
+            SELECT data_json
+            FROM auth_sessions
+            WHERE user_id = ?
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (row["player_id"],),
+        ).fetchone()
+        display_name = None
+        photo_url = None
+        if session_row is not None:
+            try:
+                session_data = json.loads(session_row["data_json"] or "{}")
+                telegram_user = session_data.get("telegram_user") or {}
+                first_name = str(telegram_user.get("first_name") or "").strip()
+                last_name = str(telegram_user.get("last_name") or "").strip()
+                username = str(telegram_user.get("username") or "").strip()
+                full_name = " ".join(
+                    part for part in (first_name, last_name) if part
+                )
+                display_name = full_name or (f"@{username}" if username else None)
+                raw_photo_url = telegram_user.get("photo_url")
+                if isinstance(raw_photo_url, str) and raw_photo_url.startswith(
+                    ("https://", "http://")
+                ):
+                    photo_url = raw_photo_url
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+        seat["display_name"] = display_name
+        seat["photo_url"] = photo_url
+        public_seats.append(seat)
     hand = conn.execute(
         """
         SELECT hand_id, street, pot, button_seat, action_seat, state_json,
@@ -3594,7 +3631,7 @@ def _get_table_state_with_conn(conn, table_id: str) -> dict:
         "waitlist_count": waitlist_count,
         "created_at": table["created_at"],
         "updated_at": table["updated_at"],
-        "seats": [dict(row) for row in seats],
+        "seats": public_seats,
         "active_hand": None
         if hand is None
         else {
