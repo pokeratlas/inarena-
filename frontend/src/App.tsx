@@ -838,7 +838,8 @@ function OnlineTable({
         playerId={playerId}
         sessionId={sessionId}
         onChanged={() => {
-          window.setTimeout(() => window.location.reload(), 150);
+          // Table mutations are delivered through realtime/polling.
+          // Keep the player on the table instead of reloading the mini-app.
         }}
         onLeave={onBack}
       />
