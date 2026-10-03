@@ -24,10 +24,15 @@ test("operator bootstrap exchanges for scoped session and dashboard loads", asyn
 
   await expect(page.getByText("Tables", { exact: true })).toBeVisible();
   const token = await page.evaluate(() =>
-    sessionStorage.getItem("inarena_operator_token"),
+    localStorage.getItem("inarena_operator_token"),
   );
   expect(token).toMatch(/^ops_/);
 
+  await expect(page.getByPlaceholder("Bootstrap operator key")).toHaveCount(0);
+  const reopened = await page.context().newPage();
+  await reopened.goto("/?operator=1");
+  await expect(reopened.getByText("Tables", { exact: true })).toBeVisible();
+  await reopened.close();
   await page.reload();
   await expect(page.getByText("Tables", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Выйти" })).toBeVisible();
@@ -36,7 +41,7 @@ test("operator bootstrap exchanges for scoped session and dashboard loads", asyn
   await expect(page.getByPlaceholder("Bootstrap operator key")).toBeVisible();
   expect(
     await page.evaluate(() =>
-      sessionStorage.getItem("inarena_operator_token"),
+      localStorage.getItem("inarena_operator_token"),
     ),
   ).toBeNull();
 });
@@ -107,7 +112,7 @@ test("invalid persisted operator token is cleared and recovery is explicit", asy
 }) => {
   await page.goto("/?operator=1");
   await page.evaluate(() => {
-    sessionStorage.setItem("inarena_operator_token", "ops_invalid");
+    localStorage.setItem("inarena_operator_token", "ops_invalid");
   });
   await page.reload();
 
@@ -116,7 +121,7 @@ test("invalid persisted operator token is cleared and recovery is explicit", asy
   ).toBeVisible();
   expect(
     await page.evaluate(() =>
-      sessionStorage.getItem("inarena_operator_token"),
+      localStorage.getItem("inarena_operator_token"),
     ),
   ).toBeNull();
 });

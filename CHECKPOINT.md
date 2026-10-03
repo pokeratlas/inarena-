@@ -679,3 +679,8 @@ No token, session ID or raw Telegram data is displayed. No owner controls are ad
 to the player interface. Tests cover no-session state, identity/balance, refresh,
 return-to-lobby balance and absence of owner controls/session IDs.
 Same-SHA CI and staging verification required before promotion.
+
+
+## 2026-10-04 — approved owner session persistence
+
+Persist only the scoped operator session token across tabs; migrate existing tab sessions on successful validation. Never persist the bootstrap key. Hide bootstrap form while authenticated. Logout and unauthorized/expired responses clear both stores; backend TTL and authorization unchanged. Fullstack coverage verifies reopening, logout and invalid token recovery.

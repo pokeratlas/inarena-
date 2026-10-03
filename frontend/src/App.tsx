@@ -1154,7 +1154,7 @@ function DiagnosticsView({
 
 function OperatorDashboardView() {
   const [operatorKey, setOperatorKey] = useState(
-    () => window.sessionStorage.getItem("inarena_operator_token") ?? "",
+    () => window.localStorage.getItem("inarena_operator_token") ?? window.sessionStorage.getItem("inarena_operator_token") ?? "",
   );
   const [bootstrapKey, setBootstrapKey] = useState("");
   const [dashboard, setDashboard] = useState<OperatorDashboard | null>(null);
@@ -1175,7 +1175,8 @@ function OperatorDashboardView() {
       setDashboard(data);
       setAudit(auditRows);
       if (key.startsWith("ops_")) {
-        window.sessionStorage.setItem("inarena_operator_token", key);
+        window.localStorage.setItem("inarena_operator_token", key);
+        window.sessionStorage.removeItem("inarena_operator_token");
       }
     } catch (cause) {
       setDashboard(null);
@@ -1186,6 +1187,7 @@ function OperatorDashboardView() {
         message.includes("expired or unauthorized")
       ) {
         window.sessionStorage.removeItem("inarena_operator_token");
+        window.localStorage.removeItem("inarena_operator_token");
         setOperatorKey("");
         setAudit([]);
         setError("Сессия оператора истекла. Получите новую сессию.");
@@ -1213,6 +1215,7 @@ function OperatorDashboardView() {
             onClick={() => {
               void revokeOperatorSession(operatorKey).catch(() => undefined);
               window.sessionStorage.removeItem("inarena_operator_token");
+              window.localStorage.removeItem("inarena_operator_token");
               setOperatorKey("");
               setDashboard(null);
               setAudit([]);
@@ -1224,7 +1227,7 @@ function OperatorDashboardView() {
         ) : null}
       </header>
 
-      <div className="operator-login">
+      {!dashboard ? <div className="operator-login">
         <input
           type="password"
           placeholder="Bootstrap operator key"
@@ -1240,7 +1243,7 @@ function OperatorDashboardView() {
               .then((session) => {
                 setOperatorKey(session.token);
                 setBootstrapKey("");
-                window.sessionStorage.setItem(
+                window.localStorage.setItem(
                   "inarena_operator_token",
                   session.token,
                 );
@@ -1257,7 +1260,7 @@ function OperatorDashboardView() {
         >
           Получить сессию
         </button>
-      </div>
+      </div> : null}
 
       {error ? <p role="alert">{error}</p> : null}
 
