@@ -1,0 +1,62 @@
+{
+  "product": "INARENA",
+  "candidate_sha": "03bbccc33e3a61b67b69e6993e3d3aeb9a89c85d",
+  "frozen_base_sha": "3761901c4ceff48d6cd187308e8e50cf144753a6",
+  "schema_version": 15,
+  "frontend_version": "0.1.0",
+  "gate": "PASS",
+  "scope": "Frontend development/build dependency security fix only; no application or schema changes",
+  "dependencies": {
+    "vite": "6.4.3",
+    "vitest": "4.1.11"
+  },
+  "audit": {
+    "before": {
+      "moderate": 3,
+      "high": 1,
+      "critical": 1,
+      "total": 5
+    },
+    "after": {
+      "total": 0
+    },
+    "evidence": [
+      "npm-audit-before.json",
+      "npm-audit-after.json"
+    ]
+  },
+  "workflows": {
+    "backend-ci": {
+      "run_id": 37133242984,
+      "run_url": "https://github.com/pokeratlas/inarena-/actions/runs/37133242984",
+      "jobs": [
+        "test",
+        "postgres-integration",
+        "redis-integration",
+        "staging-smoke",
+        "load-smoke",
+        "backup-restore-drill"
+      ]
+    },
+    "frontend-ci": {
+      "run_id": 37133242980,
+      "run_url": "https://github.com/pokeratlas/inarena-/actions/runs/37133242980",
+      "jobs": [
+        "build",
+        "fullstack-e2e"
+      ]
+    }
+  },
+  "local_validation": {
+    "build": "PASS",
+    "playwright": "10 passed",
+    "fullstack": "3 passed on clean database",
+    "backend": "103 passed, 5 infrastructure-dependent skips",
+    "npm_test": "Pre-existing failure: Vitest collects Playwright specs; reproduced with both 2.1.9 and 4.1.11. No unit test files exist."
+  },
+  "staging": {
+    "backend": "https://inarena-backend.onrender.com",
+    "frontend": "https://inarena-frontend.onrender.com",
+    "deployment_verification": "Pending promotion; final release SHA and post-deploy evidence recorded separately."
+  }
+}

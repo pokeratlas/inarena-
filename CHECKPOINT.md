@@ -589,3 +589,33 @@ Proceed only with:
 2. real Telegram Mini App device dry run;
 3. hosted PostgreSQL backup/restore verification;
 4. blocker/critical fixes found by those runs.
+
+
+## RC1 frontend dependency security fix — 2026-10-03
+
+Frozen base: `3761901c4ceff48d6cd187308e8e50cf144753a6`.
+Security candidate: `03bbccc33e3a61b67b69e6993e3d3aeb9a89c85d`.
+This is a security exception under the beta freeze; no application features,
+React ranges, backend code or schema changes.
+
+- Reproduced Render npm audit: 5 vulnerable packages (3 moderate, 1 high, 1 critical).
+- Root: Vitest 2.1.9, @vitest/mocker, nested Vite 5.4.21/vite-node/esbuild.
+- Pin Vitest 4.1.11, the first maintained fix for GHSA-82fw-gwwq-j7x9;
+  also addresses critical GHSA-5xrq-8626-4rwp. Older 2.x/3.x have no mocker fix.
+- Pin Vite 6.4.3 within the existing major; fixes GHSA-fx2h-pf6j-xcff,
+  GHSA-v6wh-96g9-6wx3 and GHSA-4w7w-66w2-5vf9.
+- Add package-lock.json; no blanket audit fix or unrelated dependency range changes.
+- npm audit: 0 vulnerabilities; production build: PASS.
+- Local Playwright/accessibility: 10 passed; clean fullstack E2E: 3 passed.
+- Local backend: 103 passed, 5 infrastructure-dependent skips.
+- Same-security-SHA frontend CI: PASS (run 37133242980).
+- Same-security-SHA backend CI: PASS (run 37133242984), including PostgreSQL,
+  Redis, staging smoke, k6, container build and backup/restore drill.
+- npm test has a pre-existing runner-discovery failure: Playwright files are
+  collected as Vitest suites; reproduced on both old/new versions. No unit
+  test files exist. The required Playwright gates pass.
+
+Audit JSON and RC manifest: `docs/rc1-security/`.
+Public Render staging is provisioned; previous public-HTTPS blocker is resolved.
+Promotion and post-deploy ready/version/CORS evidence follow the same-SHA gate.
+Real Telegram device dry runs and hosted-provider backup/restore remain pending.
