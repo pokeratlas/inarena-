@@ -180,6 +180,7 @@ function PlayerActions({
     (hand.state.street_contributions as Record<string, number> | undefined) ?? {};
   const contribution = Number(streetContributions[playerSeat.player_id] ?? 0);
   const facingBet = currentBet > contribution;
+  const callAmount = Math.max(0, currentBet - contribution);
   const maxTarget = contribution + playerSeat.stack;
   const presetTargets = [
     { label: "1/2 Pot", value: Math.min(maxTarget, Math.max(currentBet + 1, currentBet + Math.ceil(hand.pot * 0.5))) },
@@ -212,7 +213,7 @@ function PlayerActions({
   return (
     <section className="player-actions" aria-label="Действия игрока">
       <div className="action-meta">
-        <p>Ваш ход · действие #{actionNo + 1}</p>
+        <p>Ваш ход</p>
         <span className={connected ? "action-clock" : "action-clock reconnecting"}>
           {!connected
             ? "Reconnecting…"
@@ -226,7 +227,7 @@ function PlayerActions({
       </button>
       {facingBet ? (
         <button className="action-button" disabled={interactionLocked} type="button" onClick={() => void act("call")}>
-          Call
+          Call {callAmount}
         </button>
       ) : (
         <button className="action-button" disabled={interactionLocked} type="button" onClick={() => void act("check")}>
@@ -498,7 +499,6 @@ function OnlineTable({
       setMyHistory([]);
       return;
     }
-
     let active = true;
     getMyHandHistory(sessionId, 5)
       .then((items) => {
@@ -507,7 +507,6 @@ function OnlineTable({
       .catch(() => {
         if (active) setMyHistory([]);
       });
-
     return () => {
       active = false;
     };
@@ -518,73 +517,136 @@ function OnlineTable({
   const buttonSeat = Number(table.active_hand?.state.button_seat ?? 0);
   const smallBlindSeat = Number(table.active_hand?.state.small_blind_seat ?? 0);
   const bigBlindSeat = Number(table.active_hand?.state.big_blind_seat ?? 0);
-  const minRaise = Number(table.active_hand?.state.min_raise ?? 0);
+  const heroSeat =
+    table.seats.find((seat) => seat.player_id === playerId) ?? null;
+  const opponents = table.seats.filter((seat) => seat.player_id !== playerId);
+  const actionSeat = table.active_hand?.action_seat ?? null;
+
+  const seatBadges = (seatNo: number) => (
+    <div className="seat-badges">
+      {seatNo === buttonSeat ? <span>D</span> : null}
+      {seatNo === smallBlindSeat ? <span>SB</span> : null}
+      {seatNo === bigBlindSeat ? <span>BB</span> : null}
+    </div>
+  );
+
+  const renderCards = (cards: string[], hero = false) =>
+    cards.map((card) => (
+      <span
+        className={hero ? "playing-card hero-card" : "playing-card"}
+        key={card}
+      >
+        {card}
+      </span>
+    ));
 
   return (
-    <section className="table-screen" aria-label="Игровой стол">
-      <header className="table-header">
-        <button className="ghost-button" type="button" onClick={onBack}>← Лобби</button>
-        <h2>{table.name}</h2>
-        <p>
-          {connected ? "Live" : "Reconnecting"} · seq {lastSeq}
-        </p>
+    <section className="table-screen table-screen-redesign" aria-label="Игровой стол">
+      <header className="table-header table-header-redesign">
+        <button className="table-back" type="button" onClick={onBack}>
+          ← Лобби
+        </button>
+        <div className="table-title-block">
+          <span className="table-kicker">INARENA CASH</span>
+          <h2>{table.name}</h2>
+          <span className="table-limit">
+            {table.small_blind}/{table.big_blind}
+          </span>
+        </div>
+        <span
+          className={connected ? "live-pill" : "live-pill reconnecting"}
+          aria-label={connected ? "Соединение активно" : "Переподключение"}
+        >
+          <i />
+          {connected ? "LIVE" : "RECONNECT"}
+        </span>
       </header>
 
-      <div className="poker-table" aria-label="Места за столом">
-        {table.seats.map((seat) => (
-          <article className={seat.player_id === playerId ? "seat-card hero-seat" : "seat-card"} key={seat.seat_no}>
-            <strong>
-              Seat {seat.seat_no}
-              {seat.player_id === playerId ? " · Вы" : ""}
-            </strong>
-            <div className="seat-badges">
-              {seat.seat_no === buttonSeat ? <span>D</span> : null}
-              {seat.seat_no === smallBlindSeat ? <span>SB</span> : null}
-              {seat.seat_no === bigBlindSeat ? <span>BB</span> : null}
-            </div>
-            <p>{seat.player_id}</p>
-            <p>
-              {seat.stack} chips
-              {seat.finish_place ? ` · #${seat.finish_place}` : ""}
-              {seat.status === "eliminated" ? " · eliminated" : ""}
-            </p>
-          </article>
-        ))}
-      </div>
-
-      <div className="board-cards" aria-label="Общие карты">
-        {board.length === 0 ? (
-          <span className="card-placeholder">Board</span>
-        ) : (
-          board.map((card) => (
-            <span className="playing-card" key={card}>{card}</span>
-          ))
-        )}
-      </div>
-
-      {holeCards.length > 0 ? (
-        <div className="hole-cards" aria-label="Ваши карты">
-          {holeCards.map((card) => (
-            <span className="playing-card hero-card" key={card}>{card}</span>
+      <section className="game-stage">
+        <div className="opponent-row">
+          {opponents.map((seat) => (
+            <article
+              className={
+                seat.seat_no === actionSeat
+                  ? "player-pod opponent-pod is-acting"
+                  : "player-pod opponent-pod"
+              }
+              key={seat.seat_no}
+            >
+              <div className="player-pod-top">
+                <span className="player-avatar">P{seat.seat_no}</span>
+                <div>
+                  <strong>Игрок {seat.seat_no}</strong>
+                  <small>{seat.stack.toLocaleString()} chips</small>
+                </div>
+              </div>
+              {seatBadges(seat.seat_no)}
+            </article>
           ))}
         </div>
-      ) : null}
 
-      <div className="hand-status">
-        <p>Статус: {table.status}</p>
-        {table.active_hand ? (
-          <p>
-            Blinds {String(table.active_hand.state.small_blind ?? "—")}/
-            {String(table.active_hand.state.big_blind ?? "—")} · min raise {minRaise}
-          </p>
+        <div className="felt-table">
+          <div className="table-brand">INARENA</div>
+          <div className="pot-display">
+            <small>POT</small>
+            <strong>{table.active_hand?.pot ?? 0}</strong>
+          </div>
+
+          <div className="board-cards board-cards-redesign" aria-label="Общие карты">
+            {board.length > 0
+              ? renderCards(board)
+              : Array.from({ length: 5 }, (_, index) => (
+                  <span
+                    className="card-slot"
+                    key={"board-slot-" + index}
+                    aria-hidden="true"
+                  />
+                ))}
+          </div>
+
+          <div className="street-label">
+            {table.active_hand
+              ? String(table.active_hand.street).toUpperCase()
+              : "WAITING"}
+          </div>
+        </div>
+
+        {heroSeat ? (
+          <article
+            className={
+              heroSeat.seat_no === actionSeat
+                ? "player-pod hero-player-pod is-acting"
+                : "player-pod hero-player-pod"
+            }
+          >
+            <div className="hero-player-info">
+              <div>
+                <span className="hero-label">ВЫ</span>
+                <strong>{heroSeat.stack.toLocaleString()} chips</strong>
+              </div>
+              {seatBadges(heroSeat.seat_no)}
+            </div>
+
+            <div className="hole-cards hole-cards-redesign" aria-label="Ваши карты">
+              {holeCards.length > 0
+                ? renderCards(holeCards, true)
+                : (
+                  <>
+                    <span className="card-back" />
+                    <span className="card-back" />
+                  </>
+                )}
+            </div>
+          </article>
         ) : null}
-        <p>
-          {table.active_hand
-            ? `${table.active_hand.street} · pot ${table.active_hand.pot} · ход seat ${table.active_hand.action_seat}`
-            : table.winner_player_id
-              ? `Tournament winner: ${table.winner_player_id}`
-              : "Ожидание раздачи"}
-        </p>
+      </section>
+
+      <div className="game-message" role="status">
+        {!table.active_hand
+          ? "Ожидание следующей раздачи"
+          : heroSeat?.seat_no === actionSeat
+            ? "Ваш ход"
+            : "Ход игрока " + (actionSeat ?? "—")}
       </div>
 
       <PlayerActions
@@ -593,14 +655,6 @@ function OnlineTable({
         sessionId={sessionId}
         connected={connected}
       />
-      {table.active_hand &&
-      table.seats.some((seat) => seat.player_id === playerId) &&
-      table.seats.find((seat) => seat.player_id === playerId)?.seat_no !==
-        table.active_hand.action_seat ? (
-        <p className="action-state" role="status">
-          Ожидание хода соперника…
-        </p>
-      ) : null}
 
       <TablePolicyControls
         table={table}
@@ -612,45 +666,34 @@ function OnlineTable({
         onLeave={onBack}
       />
 
-      <section className="history-panel" aria-label="История раздач">
-        <h3>Последняя раздача</h3>
+      <details className="history-panel history-panel-compact">
+        <summary>История последней раздачи</summary>
         {history[0] ? (
           <>
             <p>Pot {history[0].pot}</p>
-            <p>
-              Выплаты: {Object.entries(history[0].payouts)
-                .filter(([, value]) => value > 0)
-                .map(([player, value]) => `${player} +${value}`)
-                .join(" · ")}
-            </p>
             <div className="history-actions">
               {historyActions.map((item) => (
                 <span key={item.action_no}>
-                  #{item.action_no} seat {item.seat_no} {item.action}
-                  {item.amount === null ? "" : ` ${item.amount}`}
+                  #{item.action_no} · Seat {item.seat_no} · {item.action}
+                  {item.amount === null ? "" : " " + item.amount}
                 </span>
               ))}
             </div>
+            {myHistory[0] ? (
+              <div className="my-hand-history">
+                <p>
+                  Мои карты: {myHistory[0].hole_cards.join(" ")}
+                  {myHistory[0].board.length > 0
+                    ? " · Board " + myHistory[0].board.join(" ")
+                    : ""}
+                </p>
+              </div>
+            ) : null}
           </>
         ) : (
           <p>Завершённых раздач пока нет.</p>
         )}
-
-        {myHistory[0] ? (
-          <div className="my-hand-history">
-            <h4>Моя последняя раздача</h4>
-            <p>
-              Карты: {myHistory[0].hole_cards.join(" ")}
-              {myHistory[0].board.length > 0
-                ? ` · Board ${myHistory[0].board.join(" ")}`
-                : ""}
-            </p>
-            <p>
-              Payout +{myHistory[0].payout} · Stack {myHistory[0].final_stack}
-            </p>
-          </div>
-        ) : null}
-      </section>
+      </details>
     </section>
   );
 }
