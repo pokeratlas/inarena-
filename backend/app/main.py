@@ -330,8 +330,8 @@ manager = ConnectionManager()
 
 
 async def _start_next_cash_hand_after_delay(table_id: str) -> None:
-    # Keep the first hand operator-controlled. Once a real cash hand ends,
-    # continue the session automatically after a short leave window.
+    # Cash tables start automatically whenever two funded seated players
+    # are ready, including the first hand and all following hands.
     await asyncio.sleep(2)
     try:
         state = get_table_state(table_id)
@@ -784,6 +784,7 @@ async def api_claim_reservation(
             state,
         )
         await manager.broadcast_state(table_id, "seat_reservation_claimed")
+        _schedule_next_cash_hand(state)
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
@@ -833,6 +834,7 @@ async def api_join_authenticated(
             state,
         )
         await manager.broadcast_state(table_id, "player_joined")
+        _schedule_next_cash_hand(state)
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
