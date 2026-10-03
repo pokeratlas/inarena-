@@ -531,14 +531,33 @@ function OnlineTable({
   );
 
   const renderCards = (cards: string[], hero = false) =>
-    cards.map((card) => (
-      <span
-        className={hero ? "playing-card hero-card" : "playing-card"}
-        key={card}
-      >
-        {card}
-      </span>
-    ));
+    cards.map((card) => {
+      const rank = card.slice(0, -1);
+      const suitCode = card.slice(-1);
+      const suitMap: Record<string, string> = {
+        c: "♣",
+        d: "♦",
+        h: "♥",
+        s: "♠",
+      };
+      const isRed = suitCode === "d" || suitCode === "h";
+      return (
+        <span
+          className={[
+            "playing-card",
+            hero ? "hero-card" : "",
+            isRed ? "card-red" : "card-black",
+          ].filter(Boolean).join(" ")}
+          key={card}
+          aria-label={card}
+        >
+          <span className="card-rank">{rank}</span>
+          <span className="card-suit" aria-hidden="true">
+            {suitMap[suitCode] ?? suitCode}
+          </span>
+        </span>
+      );
+    });
 
   return (
     <section className="table-screen table-screen-redesign" aria-label="Игровой стол">
