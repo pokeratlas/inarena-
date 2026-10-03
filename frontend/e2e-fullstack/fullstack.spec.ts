@@ -301,3 +301,44 @@ test("cash table auto-starts for two players and continues to next hand", async 
     await client.context.close();
   }
 });
+
+
+test("cash watchdog starts a ready open table even when no join trigger fires", async ({ request }) => {
+  const token = await createOperatorToken(request);
+  const headers = { "X-Operator-Key": token };
+  const created = await request.post(`${API}/api/v1/operator/tables`, {
+    headers,
+    data: { name: "Watchdog cash table" },
+  });
+  expect(created.ok()).toBeTruthy();
+  const table = await created.json();
+
+  for (const seat of [1, 2]) {
+    const user = `watchdog-player-${seat}`;
+    const joined = await request.post(`${API}/api/v1/tables/${table.id}/join`, {
+      data: { player_id: user, seat_no: seat, stack: 10_000 },
+    });
+    expect(joined.ok()).toBeTruthy();
+  }
+
+  const immediatelyAfterJoin = await (
+    await request.get(`${API}/api/v1/tables/${table.id}`)
+  ).json();
+  expect(immediatelyAfterJoin.status).toBe("open");
+  expect(immediatelyAfterJoin.active_hand).toBeNull();
+
+  await expect.poll(async () => {
+    const state = await (
+      await request.get(`${API}/api/v1/tables/${table.id}`)
+    ).json();
+    return {
+      status: state.status,
+      hand: state.active_hand?.hand_id ?? null,
+      pot: state.active_hand?.pot ?? null,
+    };
+  }, { timeout: 10_000 }).toEqual({
+    status: "playing",
+    hand: expect.any(String),
+    pot: 150,
+  });
+});
