@@ -94,7 +94,7 @@ test("authenticated player restores session and joins a real cash table", async 
   await page.getByRole("button", { name: /Сесть · Seat 1/ }).click();
 
   await expect(page.getByText("E2E Cash Table")).toBeVisible();
-  await expect(page.getByText(/Seat 1 · Вы/)).toBeVisible();
+  await expect(page.getByText("ВЫ", { exact: true })).toBeVisible();
 
   const stateResponse = await request.get(
     `${API}/api/v1/tables/${table.id}`,
@@ -279,7 +279,7 @@ test("cash table auto-starts for two players and continues to next hand", async 
   await expect(actor!.page.getByRole("button", { name: "Fold" })).toBeVisible();
   await expect(actor!.page.getByRole("button", { name: /Call|Check/ })).toBeVisible();
   await expect(actor!.page.getByRole("button", { name: /Raise|Bet/ })).toBeVisible();
-  await expect(observer!.page.getByText("Ожидание хода соперника…")).toBeVisible();
+  await expect(observer!.page.getByText(`Ход игрока ${actionSeat}`)).toBeVisible();
 
   await actor!.page.getByRole("button", { name: "Fold" }).click();
 
