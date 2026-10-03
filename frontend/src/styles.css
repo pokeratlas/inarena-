@@ -301,7 +301,7 @@ button {
   font-weight: 700;
 }
 
-.nav-item:first-child {
+.nav-item[aria-current="page"] {
   color: #ffffff;
   background: rgba(52, 94, 255, 0.18);
 }
