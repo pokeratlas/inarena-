@@ -327,6 +327,7 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+_cash_reconcile_task: asyncio.Task[None] | None = None
 
 
 async def _start_next_cash_hand_after_delay(table_id: str) -> None:
@@ -370,17 +371,54 @@ def _reconcile_ready_cash_tables() -> None:
         _schedule_next_cash_hand(state)
 
 
+async def _cash_reconcile_loop() -> None:
+    while True:
+        await asyncio.sleep(1)
+        for state in list_tables():
+            if (
+                state.get("table_mode") == "cash"
+                and state.get("status") == "open"
+                and state.get("active_hand") is None
+            ):
+                funded = [
+                    seat
+                    for seat in state.get("seats", [])
+                    if seat.get("status") == "seated"
+                    and int(seat.get("stack", 0)) > 0
+                ]
+                if len(funded) < 2:
+                    continue
+                try:
+                    start_hand(str(state["id"]))
+                    await manager.broadcast_state(
+                        str(state["id"]),
+                        "hand_started",
+                    )
+                except (ConflictError, NotFoundError):
+                    continue
+
+
 @app.on_event("startup")
 async def startup() -> None:
+    global _cash_reconcile_task
     init_database_pool()
     ensure_schema()
     if manager.coordinator.configured:
         await manager.coordinator.start(manager.receive_remote_event)
     _reconcile_ready_cash_tables()
+    _cash_reconcile_task = asyncio.create_task(_cash_reconcile_loop())
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    global _cash_reconcile_task
+    if _cash_reconcile_task is not None:
+        _cash_reconcile_task.cancel()
+        try:
+            await _cash_reconcile_task
+        except asyncio.CancelledError:
+            pass
+        _cash_reconcile_task = None
     await manager.coordinator.stop()
     await rate_limiter.close()
     close_database_pool()
