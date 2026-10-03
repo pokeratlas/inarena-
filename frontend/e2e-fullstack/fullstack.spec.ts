@@ -208,7 +208,7 @@ test("owner starts a two-player hand and duplicate start stays disabled", async 
 });
 
 
-test("two player clients receive actions and cash game continues to next hand", async ({ browser, request }) => {
+test("cash table auto-starts for two players and continues to next hand", async ({ browser, request }) => {
   const token = await createOperatorToken(request);
   const headers = { "X-Operator-Key": token };
   const created = await request.post(`${API}/api/v1/operator/tables`, {
@@ -257,12 +257,16 @@ test("two player clients receive actions and cash game continues to next hand", 
     clients.push({ ...player, context, page: playerPage });
   }
 
-  const started = await request.post(
-    `${API}/api/v1/operator/tables/${table.id}/start-hand`,
-    { headers, data: {} },
-  );
-  expect(started.ok()).toBeTruthy();
-  const firstHand = await started.json();
+  await expect.poll(async () => {
+    const state = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+    return state.active_hand?.hand_id ?? null;
+  }, { timeout: 10_000 }).not.toBeNull();
+
+  const firstHand = await (await request.get(
+    `${API}/api/v1/tables/${table.id}`,
+  )).json();
+  expect(firstHand.status).toBe("playing");
+  expect(firstHand.active_hand.pot).toBe(150);
   const firstHandId = firstHand.active_hand.hand_id;
   const actionSeat = firstHand.active_hand.action_seat;
   const actor = clients.find((client) => client.seat === actionSeat);
