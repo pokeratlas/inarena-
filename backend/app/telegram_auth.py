@@ -9,7 +9,20 @@ from urllib.parse import parse_qsl
 
 
 class TelegramAuthError(RuntimeError):
-    pass
+    @property
+    def reason(self) -> str:
+        # Only fixed categories may enter logs; never include raw input/errors.
+        return {
+            "telegram auth is not configured": "not_configured",
+            "telegram hash is missing": "hash_missing",
+            "invalid telegram signature": "hash_mismatch",
+            "telegram auth_date is missing": "auth_date_missing",
+            "invalid telegram auth_date": "auth_date_invalid",
+            "telegram init data is expired": "expired",
+            "telegram user is missing": "user_missing",
+            "invalid telegram user": "user_invalid",
+            "telegram user id is missing": "user_id_missing",
+        }.get(str(self), "validation_failed")
 
 
 def validate_init_data(init_data: str, max_age_seconds: int = 3600) -> dict:
@@ -19,7 +32,7 @@ def validate_init_data(init_data: str, max_age_seconds: int = 3600) -> dict:
 
     pairs = dict(parse_qsl(init_data, keep_blank_values=True))
     received_hash = pairs.pop("hash", None)
-    pairs.pop("signature", None)
+    # Bot-token HMAC includes signature; only Ed25519 validation excludes it.
     if not received_hash:
         raise TelegramAuthError("telegram hash is missing")
 

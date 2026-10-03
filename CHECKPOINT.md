@@ -641,3 +641,17 @@ Machine-readable evidence: `docs/rc1-security/staging-verification.json`;
 RC manifest: `docs/rc1-security/manifest.json`. These records identify the verified
 release; subsequent documentation-only evidence commits require the same CI gate
 before advancing the staging branch. No new features were added.
+
+
+## RC1 Telegram authentication blocker — 2026-10-03
+
+A real iPhone Mini App launch reached the auth endpoint but returned 401.
+Code inspection found bot-token HMAC incorrectly removed the modern `signature`
+field, confusing the bot-token and third-party Ed25519 validation rules.
+The regression test reproduced 401 for valid modern data before the fix.
+Keep all fields except `hash` in bot-token HMAC; preserve expiry and tamper checks.
+Add rejection logs with only fixed reason category, request ID and release/environment.
+No token, initData, user, hashes or signatures enter these diagnostics.
+Tests cover modern acceptance, signature tampering and diagnostic privacy.
+Same-SHA CI and staging promotion are required; the real device retry remains pending.
+Reference: https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app

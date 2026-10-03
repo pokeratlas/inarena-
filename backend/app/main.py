@@ -26,6 +26,7 @@ from .observability import (
     RequestObservabilityMiddleware,
     configure_logging,
     release_metadata,
+    structured_log,
 )
 from .realtime_coordination import RedisRealtimeCoordinator
 from .security import (
@@ -986,10 +987,16 @@ async def api_complete_hand(
 
 
 @app.post("/api/v1/auth/telegram", status_code=201)
-def api_auth_telegram(payload: TelegramAuthRequest) -> dict[str, Any]:
+def api_auth_telegram(payload: TelegramAuthRequest, request: Request) -> dict[str, Any]:
     try:
         verified = validate_init_data(payload.init_data)
     except TelegramAuthError as exc:
+        structured_log(
+            logger, "telegram_auth_rejected",
+            reason=exc.reason,
+            request_id=request.state.request_id,
+            **release_metadata(),
+        )
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
     user = verified["user"]
