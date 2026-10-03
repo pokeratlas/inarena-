@@ -892,6 +892,13 @@ function OnlineLobby({
   const [registrations, setRegistrations] = useState<Record<string, TournamentRegistration>>({});
   const [waitlists, setWaitlists] = useState<Record<string, CashWaitlistStatus>>({});
   const [tableOpen, setTableOpen] = useState(false);
+  const [buyInIntent, setBuyInIntent] = useState<{
+    tableId: string;
+    seatNo: number;
+    reservationId?: string;
+  } | null>(null);
+  const [buyInAmount, setBuyInAmount] = useState(0);
+  const [buyInPending, setBuyInPending] = useState(false);
   const realtime = useTableRealtime(tableOpen ? selectedTableId : null);
 
   useEffect(() => {
@@ -1007,6 +1014,93 @@ function OnlineLobby({
       active = false;
     };
   }, [session, tables]);
+
+  const openBuyIn = (
+    table: TableState,
+    seatNo: number,
+    reservationId?: string,
+  ) => {
+    const availableMax = Math.min(
+      table.cash_buyin_max,
+      balance?.balance ?? 0,
+    );
+    const preferred = table.big_blind * 100;
+    const initial = Math.min(
+      availableMax,
+      Math.max(table.cash_buyin_min, preferred),
+    );
+    setBuyInAmount(initial);
+    setBuyInIntent({
+      tableId: table.id,
+      seatNo,
+      ...(reservationId ? { reservationId } : {}),
+    });
+    setLoadingError(null);
+  };
+
+  const submitBuyIn = async (table: TableState) => {
+    if (!session || !buyInIntent || buyInIntent.tableId !== table.id) return;
+    const availableMax = Math.min(
+      table.cash_buyin_max,
+      balance?.balance ?? 0,
+    );
+    if (
+      buyInAmount < table.cash_buyin_min ||
+      buyInAmount > availableMax
+    ) {
+      setLoadingError("Buy-in вне доступного диапазона");
+      return;
+    }
+
+    setBuyInPending(true);
+    setLoadingError(null);
+    try {
+      const updated = buyInIntent.reservationId
+        ? await claimSeatReservation(
+            table.id,
+            session.session_id,
+            buyInIntent.reservationId,
+            buyInAmount,
+          )
+        : await joinAuthenticatedTable(
+            table.id,
+            session.session_id,
+            buyInIntent.seatNo,
+            buyInAmount,
+          );
+
+      setTables((current) =>
+        current.map((item) =>
+          item.id === updated.id ? updated : item,
+        ),
+      );
+      if (buyInIntent.reservationId) {
+        setWaitlists((current) => ({
+          ...current,
+          [table.id]: {
+            ...current[table.id],
+            status: "seated",
+            reservation: null,
+          },
+        }));
+      }
+      setBalance((current) =>
+        current
+          ? { ...current, balance: Math.max(0, current.balance - buyInAmount) }
+          : current,
+      );
+      setBuyInIntent(null);
+      setSelectedTableId(table.id);
+      setTableOpen(true);
+      onTableScreenChange(true);
+    } catch (cause) {
+      setLoadingError(
+        cause instanceof Error ? cause.message : "Не удалось сесть за стол",
+      );
+    } finally {
+      setBuyInPending(false);
+    }
+  };
 
   if (tableOpen && realtime.state) {
     return (
