@@ -1298,3 +1298,95 @@ body,
 .hole-cards-redesign .card-suit {
   font-size: 22px;
 }
+
+
+/* Professional action bar + public player identity */
+.player-avatar-photo {
+  object-fit: cover;
+  padding: 0;
+}
+
+.player-actions-pro {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.player-actions-pro .action-meta {
+  grid-column: 1;
+}
+
+.player-actions-pro .action-meta > div {
+  display: grid;
+  gap: 2px;
+}
+
+.player-actions-pro .action-meta small {
+  color: #8296bc;
+  font-size: 10px;
+}
+
+.primary-action-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+
+.player-actions-pro .bet-presets {
+  grid-column: 1;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.player-actions-pro .preset-button {
+  min-height: 34px;
+  padding: 0 4px;
+  font-size: 10px;
+}
+
+.action-call {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.bet-slider {
+  display: grid;
+  gap: 8px;
+}
+
+.bet-slider > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #8fa3c8;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.bet-slider strong {
+  color: #f6f8ff;
+  font-size: 14px;
+}
+
+.bet-slider input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: #5b7cff;
+}
+
+.action-raise {
+  width: 100%;
+  min-height: 54px !important;
+  font-size: 14px;
+}
+
+@media (max-width: 370px) {
+  .player-actions-pro .bet-presets {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .player-actions-pro .preset-button {
+    min-height: 32px;
+    font-size: 9px;
+  }
+}
