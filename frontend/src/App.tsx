@@ -1275,40 +1275,18 @@ function OnlineLobby({
                         <button
                           className="action-button action-primary"
                           type="button"
+                          disabled={
+                            table.status === "closed" ||
+                            (balance?.balance ?? 0) < table.cash_buyin_min
+                          }
                           onClick={() => {
-                            const buyIn = Math.min(
-                              table.cash_buyin_max,
-                              Math.max(
-                                table.cash_buyin_min,
-                                table.starting_stack,
-                              ),
-                            );
-                            const reservation =
-                              waitlists[table.id].reservation;
+                            const reservation = waitlists[table.id].reservation;
                             if (!reservation) return;
-                            void claimSeatReservation(
-                              table.id,
-                              session.session_id,
+                            openBuyIn(
+                              table,
+                              reservation.seat_no,
                               reservation.id,
-                              buyIn,
-                            ).then((updated) => {
-                              setTables((current) =>
-                                current.map((item) =>
-                                  item.id === updated.id ? updated : item,
-                                ),
-                              );
-                              setWaitlists((current) => ({
-                                ...current,
-                                [table.id]: {
-                                  ...current[table.id],
-                                  status: "seated",
-                                  reservation: null,
-                                },
-                              }));
-                              setSelectedTableId(table.id);
-                              setTableOpen(true);
-                              onTableScreenChange(true);
-                            });
+                            );
                           }}
                         >
                           Занять Seat {waitlists[table.id].reservation?.seat_no}
@@ -1342,39 +1320,11 @@ function OnlineLobby({
                           type="button"
                           disabled={
                             table.status === "closed" ||
-                            (balance?.balance ?? 0) <
-                              Math.min(
-                                table.cash_buyin_max,
-                                Math.max(
-                                  table.cash_buyin_min,
-                                  table.starting_stack,
-                                ),
-                              )
+                            (balance?.balance ?? 0) < table.cash_buyin_min
                           }
-                          onClick={() => {
-                            const buyIn = Math.min(
-                              table.cash_buyin_max,
-                              Math.max(
-                                table.cash_buyin_min,
-                                table.starting_stack,
-                              ),
-                            );
-                            void joinAuthenticatedTable(
-                              table.id,
-                              session.session_id,
-                              firstFreeSeat,
-                              buyIn,
-                            ).then((updated) => {
-                              setTables((current) =>
-                                current.map((item) =>
-                                  item.id === updated.id ? updated : item,
-                                ),
-                              );
-                              setSelectedTableId(table.id);
-                              setTableOpen(true);
-                              onTableScreenChange(true);
-                            });
-                          }}
+                          onClick={() =>
+                            openBuyIn(table, firstFreeSeat)
+                          }
                         >
                           Сесть · Seat {firstFreeSeat}
                         </button>
@@ -1401,6 +1351,109 @@ function OnlineLobby({
                     </>
                   ) : null}
                 </div>
+
+                {buyInIntent?.tableId === table.id ? (() => {
+                  const availableMax = Math.min(
+                    table.cash_buyin_max,
+                    balance?.balance ?? 0,
+                  );
+                  const minBuyIn = table.cash_buyin_min;
+                  const clamp = (value: number) =>
+                    Math.min(
+                      availableMax,
+                      Math.max(minBuyIn, value),
+                    );
+                  const enoughBalance = availableMax >= minBuyIn;
+                  return (
+                    <section className="buyin-panel" aria-label="Выбор buy-in">
+                      <div className="buyin-head">
+                        <div>
+                          <span>BUY-IN</span>
+                          <strong>{buyInAmount.toLocaleString()} chips</strong>
+                        </div>
+                        <small>
+                          Баланс {(balance?.balance ?? 0).toLocaleString()}
+                        </small>
+                      </div>
+
+                      <div className="buyin-range-copy">
+                        <span>Min {minBuyIn.toLocaleString()}</span>
+                        <span>Max {availableMax.toLocaleString()}</span>
+                      </div>
+
+                      <div className="buyin-presets">
+                        <button
+                          type="button"
+                          disabled={!enoughBalance}
+                          onClick={() => setBuyInAmount(clamp(table.big_blind * 50))}
+                        >
+                          50 BB
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!enoughBalance}
+                          onClick={() => setBuyInAmount(clamp(table.big_blind * 100))}
+                        >
+                          100 BB
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!enoughBalance}
+                          onClick={() => setBuyInAmount(availableMax)}
+                        >
+                          Max
+                        </button>
+                      </div>
+
+                      <input
+                        aria-label="Buy-in amount"
+                        type="range"
+                        min={minBuyIn}
+                        max={Math.max(minBuyIn, availableMax)}
+                        step={table.big_blind}
+                        value={
+                          enoughBalance
+                            ? Math.min(
+                                Math.max(buyInAmount, minBuyIn),
+                                availableMax,
+                              )
+                            : minBuyIn
+                        }
+                        disabled={!enoughBalance || buyInPending}
+                        onChange={(event) =>
+                          setBuyInAmount(Number(event.target.value))
+                        }
+                      />
+
+                      {!enoughBalance ? (
+                        <p className="buyin-warning" role="alert">
+                          Недостаточно chips для минимального buy-in.
+                        </p>
+                      ) : null}
+
+                      <div className="buyin-actions">
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          disabled={buyInPending}
+                          onClick={() => setBuyInIntent(null)}
+                        >
+                          Отмена
+                        </button>
+                        <button
+                          className="action-button action-primary"
+                          type="button"
+                          disabled={!enoughBalance || buyInPending}
+                          onClick={() => void submitBuyIn(table)}
+                        >
+                          {buyInPending
+                            ? "Посадка…"
+                            : "Сесть за стол · " + buyInAmount.toLocaleString()}
+                        </button>
+                      </div>
+                    </section>
+                  );
+                })() : null}
               </article>
             );
           })
