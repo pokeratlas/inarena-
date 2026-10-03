@@ -26,6 +26,29 @@ type SocketMessage =
   | TableEventMessage
   | TableReplayMessage;
 
+function mergePublicSeatIdentity(
+  previous: TableState | null,
+  next: TableState,
+): TableState {
+  if (!previous) return next;
+  const previousByPlayer = new Map(
+    previous.seats.map((seat) => [seat.player_id, seat] as const),
+  );
+  return {
+    ...next,
+    seats: next.seats.map((seat) => {
+      const previousSeat = previousByPlayer.get(seat.player_id);
+      return {
+        ...seat,
+        display_name:
+          seat.display_name ?? previousSeat?.display_name ?? null,
+        photo_url:
+          seat.photo_url ?? previousSeat?.photo_url ?? null,
+      };
+    }),
+  };
+}
+
 export function useTableRealtime(tableId: string | null) {
   const [state, setState] = useState<TableState | null>(null);
   const [connected, setConnected] = useState(false);
@@ -48,27 +71,37 @@ export function useTableRealtime(tableId: string | null) {
     const applyMessage = (message: SocketMessage) => {
       if (message.type === "table_snapshot") {
         lastSeq.current = Math.max(lastSeq.current, message.seq);
-        setState(message.data);
+        setState((current) =>
+          mergePublicSeatIdentity(current, message.data),
+        );
         return;
       }
 
       if (message.type === "table_event") {
         if (message.seq <= lastSeq.current) return;
         lastSeq.current = message.seq;
-        setState(message.data);
+        setState((current) =>
+          mergePublicSeatIdentity(current, message.data),
+        );
         return;
       }
 
       for (const event of message.events) {
         if (event.seq <= lastSeq.current) continue;
         lastSeq.current = event.seq;
-        setState(event.payload);
+        setState((current) =>
+          mergePublicSeatIdentity(current, event.payload),
+        );
       }
     };
 
     const refreshSnapshot = async () => {
       const nextState = await getTable(tableId);
-      if (!disposed) setState(nextState);
+      if (!disposed) {
+        setState((current) =>
+          mergePublicSeatIdentity(current, nextState),
+        );
+      }
     };
 
     const connect = async () => {
