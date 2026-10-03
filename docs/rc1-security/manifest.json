@@ -1,6 +1,6 @@
 {
   "product": "INARENA",
-  "candidate_sha": "03bbccc33e3a61b67b69e6993e3d3aeb9a89c85d",
+  "candidate_sha": "8f938036624b60dfe7524004c28753d7d6056113",
   "frozen_base_sha": "3761901c4ceff48d6cd187308e8e50cf144753a6",
   "schema_version": 15,
   "frontend_version": "0.1.0",
@@ -27,24 +27,24 @@
   },
   "workflows": {
     "backend-ci": {
-      "run_id": 37133242984,
-      "run_url": "https://github.com/pokeratlas/inarena-/actions/runs/37133242984",
       "jobs": [
-        "test",
         "postgres-integration",
-        "redis-integration",
-        "staging-smoke",
+        "test",
         "load-smoke",
-        "backup-restore-drill"
-      ]
+        "staging-smoke",
+        "backup-restore-drill",
+        "redis-integration"
+      ],
+      "run_id": 37133405627,
+      "run_url": "https://github.com/pokeratlas/inarena-/actions/runs/37133405627"
     },
     "frontend-ci": {
-      "run_id": 37133242980,
-      "run_url": "https://github.com/pokeratlas/inarena-/actions/runs/37133242980",
       "jobs": [
         "build",
         "fullstack-e2e"
-      ]
+      ],
+      "run_id": 37133405626,
+      "run_url": "https://github.com/pokeratlas/inarena-/actions/runs/37133405626"
     }
   },
   "local_validation": {
@@ -57,6 +57,7 @@
   "staging": {
     "backend": "https://inarena-backend.onrender.com",
     "frontend": "https://inarena-frontend.onrender.com",
-    "deployment_verification": "Pending promotion; final release SHA and post-deploy evidence recorded separately."
+    "deployment_verification": "PASS",
+    "evidence": "staging-verification.json"
   }
 }

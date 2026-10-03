@@ -619,3 +619,25 @@ Audit JSON and RC manifest: `docs/rc1-security/`.
 Public Render staging is provisioned; previous public-HTTPS blocker is resolved.
 Promotion and post-deploy ready/version/CORS evidence follow the same-SHA gate.
 Real Telegram device dry runs and hosted-provider backup/restore remain pending.
+
+
+### RC1 security staging verification — 2026-10-03
+
+Release `8f938036624b60dfe7524004c28753d7d6056113` passed the existing
+RC gate (`scripts/rc_gate.py`) with same-SHA frontend/backend CI.
+- Frontend CI: run 37133405626, build/browser/fullstack PASS.
+- Backend CI: run 37133405627, all six jobs PASS.
+- Render frontend `dep-db0hvfm0tbcc73fud47g`: Live; install found 0 vulnerabilities.
+- Render backend `dep-db0hvk0u01pc73afb0ug`: Live; no post-deploy error logs.
+- `/ready`: PostgreSQL, schema 15, staging, Redis configured/connected.
+- `/version`: exact deployed security release SHA.
+- Public frontend: HTTP 200, mobile lobby renders, no page errors or horizontal overflow.
+- Browser can fetch backend ready/version across origins.
+- CORS allowed frontend preflight: 200 and exact frontend allow-origin.
+- CORS untrusted-origin preflight: 400 and no allow-origin header.
+- Clean npm ci, audit and TypeScript/Vite build: PASS.
+
+Machine-readable evidence: `docs/rc1-security/staging-verification.json`;
+RC manifest: `docs/rc1-security/manifest.json`. These records identify the verified
+release; subsequent documentation-only evidence commits require the same CI gate
+before advancing the staging branch. No new features were added.

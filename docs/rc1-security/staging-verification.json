@@ -1,0 +1,66 @@
+{
+  "checked_at": "2026-10-03T15:34:26.444Z",
+  "frontend_http_status": 200,
+  "browser_errors": [],
+  "ready": {
+    "status": "ready",
+    "checks": {
+      "database": "ok",
+      "database_backend": "postgresql",
+      "database_pool": {
+        "connections_num": 2,
+        "connections_ms": 381,
+        "requests_num": 2,
+        "usage_ms": 7,
+        "pool_min": 2,
+        "pool_max": 10,
+        "pool_size": 2,
+        "pool_available": 2,
+        "requests_waiting": 0
+      },
+      "realtime_coordination": {
+        "configured": true,
+        "connected": true,
+        "instance_id": "4beaa9369a9f40d782de40db6dbc408b",
+        "last_error": null
+      },
+      "schema_version": 15,
+      "environment": "staging",
+      "configuration": {
+        "status": "ok"
+      }
+    }
+  },
+  "version": {
+    "release": "8f938036624b60dfe7524004c28753d7d6056113",
+    "environment": "staging"
+  },
+  "overflow": false,
+  "scripts": [
+    "https://telegram.org/js/telegram-web-app.js?63",
+    "https://inarena-frontend.onrender.com/assets/index-Mzp969Kh.js"
+  ],
+  "cors": {
+    "allowed": {
+      "status": 200,
+      "allow_origin": "https://inarena-frontend.onrender.com"
+    },
+    "denied": {
+      "status": 400,
+      "allow_origin": null
+    }
+  },
+  "deploys": {
+    "frontend": {
+      "id": "dep-db0hvfm0tbcc73fud47g",
+      "status": "live",
+      "sha": "8f938036624b60dfe7524004c28753d7d6056113"
+    },
+    "backend": {
+      "id": "dep-db0hvk0u01pc73afb0ug",
+      "status": "live",
+      "sha": "8f938036624b60dfe7524004c28753d7d6056113"
+    }
+  },
+  "render_frontend_install": "found 0 vulnerabilities"
+}
