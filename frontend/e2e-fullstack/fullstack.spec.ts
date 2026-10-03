@@ -418,3 +418,51 @@ test("player can request leave during a hand and is removed before next cash han
   await actorContext.close();
   await leaveContext.close();
 });
+
+
+test("table state exposes only public player identity fields", async ({ request }) => {
+  const token = await createOperatorToken(request);
+  const headers = { "X-Operator-Key": token };
+  const created = await request.post(`${API}/api/v1/operator/tables`, {
+    headers,
+    data: { name: "Identity table" },
+  });
+  const table = await created.json();
+
+  expect((await request.post(`${API}/api/v1/operator/balance`, {
+    headers,
+    data: { user_id: "tg:identity-player", delta: 20_000 },
+  })).ok()).toBeTruthy();
+
+  const session = await (await request.post(`${API}/api/v1/sessions`, {
+    data: {
+      user_id: "tg:identity-player",
+      provider: "telegram",
+      data: {
+        telegram_user: {
+          first_name: "Ivan",
+          last_name: "Petrov",
+          username: "ivanp",
+          photo_url: "https://example.com/avatar.jpg",
+          language_code: "ru",
+        },
+        query_id: "private-query",
+      },
+    },
+  })).json();
+
+  expect((await request.post(`${API}/api/v1/tables/${table.id}/join-auth`, {
+    headers: {
+      "X-Session-ID": session.session_id,
+      "Idempotency-Key": "identity-join",
+    },
+    data: { seat_no: 1, stack: 10_000 },
+  })).ok()).toBeTruthy();
+
+  const state = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+  expect(state.seats[0].display_name).toBe("Ivan Petrov");
+  expect(state.seats[0].photo_url).toBe("https://example.com/avatar.jpg");
+  expect(JSON.stringify(state.seats[0])).not.toContain(session.session_id);
+  expect(JSON.stringify(state.seats[0])).not.toContain("private-query");
+  expect(JSON.stringify(state.seats[0])).not.toContain("language_code");
+});

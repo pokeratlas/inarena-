@@ -3,6 +3,8 @@ export type AppMode = "offline" | "online";
 export interface TableSeat {
   seat_no: number;
   player_id: string;
+  display_name: string | null;
+  photo_url: string | null;
   stack: number;
   status: string;
   rebuy_count: number;
