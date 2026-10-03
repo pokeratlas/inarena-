@@ -1517,6 +1517,52 @@ function OfflineHome() {
   );
 }
 
+function PlayerProfile({ session }: { session: AuthSession | null }) {
+  const [balance, setBalance] = useState<PlayerBalance | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    if (!session) return;
+    let active = true;
+    setLoading(true);
+    setBalance(null);
+    setError(null);
+    getMyBalance(session.session_id)
+      .then((value) => { if (active) setBalance(value); })
+      .catch(() => { if (active) setError("Не удалось загрузить баланс"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [session, reloadKey]);
+
+  const user = session?.data.telegram_user;
+  const telegramUser = user && typeof user === "object" ? user as Record<string, unknown> : {};
+  const name = [telegramUser.first_name, telegramUser.last_name]
+    .filter((value): value is string => typeof value === "string" && Boolean(value))
+    .join(" ") || (typeof telegramUser.username === "string" ? telegramUser.username : "Игрок");
+
+  return (
+    <main className="app-main">
+      <header className="app-header"><div><p>INARENA</p><h1>Профиль</h1></div></header>
+      {session ? (
+        <section className="state-card player-profile">
+          <h2>{name}</h2>
+          <p>ID игрока: <strong>{session.user_id}</strong></p>
+          <p>Этот ID используется владельцем клуба для начисления фишек.</p>
+          {loading ? <p role="status">Загружаем баланс…</p> : null}
+          {error ? <p role="alert">{error}</p> : null}
+          {balance ? <p>Баланс: <strong>{balance.balance} chips</strong></p> : null}
+          <button className="action-button action-primary" type="button" disabled={loading}
+            onClick={() => setReloadKey((value) => value + 1)}>
+            Обновить баланс
+          </button>
+        </section>
+      ) : <p className="state-card">Откройте приложение внутри Telegram и дождитесь входа, чтобы увидеть профиль.</p>}
+    </main>
+  );
+}
+
 export default function App() {
   const params = new URLSearchParams(window.location.search);
   const operatorMode = params.get("operator") === "1";
@@ -1524,6 +1570,7 @@ export default function App() {
   const [mode, setMode] = useState<AppMode>("offline");
   const telegram = useTelegramSession();
   const [tableScreenOpen, setTableScreenOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const tabs = mode === "online" ? onlineTabs : offlineTabs;
 
   if (diagnosticsMode) {
@@ -1563,6 +1610,7 @@ export default function App() {
         mode={mode}
         onChange={(nextMode) => {
           setMode(nextMode);
+          setProfileOpen(false);
           setTableScreenOpen(false);
         }}
       />
@@ -1583,18 +1631,21 @@ export default function App() {
               Откройте приложение внутри Telegram для действий от имени игрока.
             </div>
           ) : null}
-          <OnlineLobby
-            session={telegram.session}
-            onTableScreenChange={setTableScreenOpen}
-          />
+          {profileOpen ? <PlayerProfile session={telegram.session} /> : (
+            <OnlineLobby session={telegram.session} onTableScreenChange={setTableScreenOpen} />
+          )}
         </>
       ) : (
-        <OfflineHome />
+        profileOpen ? <PlayerProfile session={telegram.session} /> : <OfflineHome />
       )}
       {!tableScreenOpen ? (
         <nav className="bottom-nav" aria-label="Основная навигация">
           {tabs.map((tab) => (
-            <button className="nav-item" type="button" key={tab}>
+            <button className="nav-item" type="button" key={tab}
+              disabled={tab === "Игра" || tab === "Турниры"}
+              aria-current={(profileOpen ? tab === "Профиль" : tab === tabs[0]) ? "page" : undefined}
+              onClick={() => setProfileOpen(tab === "Профиль")}>
+
               {tab}
             </button>
           ))}

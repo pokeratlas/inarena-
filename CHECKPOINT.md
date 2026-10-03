@@ -666,3 +666,16 @@ no new role model or multi-club ownership claims. Empty names and repeat clicks
 while creating are blocked; successful creation refreshes the Dashboard.
 Tests verify UI visibility, real creation and backend denial without write access.
 Owner bootstrap credentials remain private; future multi-club access needs club scoping.
+
+
+## Approved player profile beta flow — 2026-10-04
+
+User approved a minimal working Profile to identify players for test-chip credit.
+Shows Telegram display name, internal user ID and balance fetched through the
+existing authenticated endpoint; manual refresh handles owner credit updates.
+Navigation works between home/lobby and Profile. Unimplemented Game/Tournaments
+shortcuts are disabled; opening a table remains through the lobby.
+No token, session ID or raw Telegram data is displayed. No owner controls are added
+to the player interface. Tests cover no-session state, identity/balance, refresh,
+return-to-lobby balance and absence of owner controls/session IDs.
+Same-SHA CI and staging verification required before promotion.

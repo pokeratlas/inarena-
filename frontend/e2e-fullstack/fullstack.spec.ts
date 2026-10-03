@@ -142,3 +142,32 @@ test("only an authenticated operator can create a table from Dashboard", async (
   await page.getByRole("button", { name: "Выйти" }).click();
   await expect(createButton).toHaveCount(0);
 });
+
+
+test("player profile shows only identity and refreshed balance", async ({ page, request }) => {
+  const token = await createOperatorToken(request);
+  const userId = "profile-player";
+  const sessionResponse = await request.post(`${API}/api/v1/sessions`, {
+    data: { user_id: userId, provider: "test", data: { telegram_user: { first_name: "Beta", last_name: "Player" } } },
+  });
+  const session = await sessionResponse.json();
+  await page.addInitScript((id) => localStorage.setItem("inarena_session_id", id), session.session_id);
+  await page.goto("/");
+  await page.getByRole("button", { name: "ONLINE", exact: false }).click();
+  await page.getByRole("button", { name: "Профиль", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Профиль", exact: true })).toBeVisible();
+  await expect(page.getByText("Beta Player", { exact: true })).toBeVisible();
+  await expect(page.getByText(userId, { exact: true })).toBeVisible();
+  await expect(page.getByText("0 chips", { exact: true })).toBeVisible();
+  expect(await page.locator("body").innerText()).not.toContain(session.session_id);
+  await expect(page.getByRole("button", { name: "Создать стол" })).toHaveCount(0);
+  const credit = await request.post(`${API}/api/v1/operator/balance`, {
+    headers: { "X-Operator-Key": token }, data: { user_id: userId, delta: 20000 },
+  });
+  expect(credit.ok()).toBeTruthy();
+  await page.getByRole("button", { name: "Обновить баланс" }).click();
+  await expect(page.getByText("20000 chips", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Лобби", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Лобби" })).toBeVisible();
+  await expect(page.getByText(/Баланс 20000 chips/)).toBeVisible();
+});

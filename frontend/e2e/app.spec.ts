@@ -83,3 +83,14 @@ test("beta diagnostics renders without sensitive credentials", async ({ page }) 
   const width = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(width).toBeLessThanOrEqual(390);
 });
+
+
+test("profile outside Telegram explains sign-in without exposing credentials", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Профиль", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Профиль", exact: true })).toBeVisible();
+  await expect(page.getByText(/Откройте приложение внутри Telegram и дождитесь входа/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Создать стол" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Главная", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Главная", exact: true })).toBeVisible();
+});
