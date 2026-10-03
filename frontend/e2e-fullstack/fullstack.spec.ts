@@ -206,3 +206,93 @@ test("owner starts a two-player hand and duplicate start stays disabled", async 
   expect(state.active_hand.pot).toBe(150);
   expect(state.seats).toHaveLength(2);
 });
+
+
+test("two player clients receive actions and cash game continues to next hand", async ({ browser, request }) => {
+  const token = await createOperatorToken(request);
+  const headers = { "X-Operator-Key": token };
+  const created = await request.post(`${API}/api/v1/operator/tables`, {
+    headers,
+    data: { name: "Functional cash loop" },
+  });
+  expect(created.ok()).toBeTruthy();
+  const table = await created.json();
+
+  const players: Array<{ user: string; sessionId: string; seat: number }> = [];
+  for (const seat of [1, 2]) {
+    const user = `functional-player-${seat}`;
+    const credit = await request.post(`${API}/api/v1/operator/balance`, {
+      headers,
+      data: { user_id: user, delta: 20_000 },
+    });
+    expect(credit.ok()).toBeTruthy();
+    const sessionResponse = await request.post(`${API}/api/v1/sessions`, {
+      data: { user_id: user, provider: "test", data: {} },
+    });
+    expect(sessionResponse.ok()).toBeTruthy();
+    const session = await sessionResponse.json();
+    const joined = await request.post(`${API}/api/v1/tables/${table.id}/join-auth`, {
+      headers: {
+        "X-Session-ID": session.session_id,
+        "Idempotency-Key": `functional-join-${seat}`,
+      },
+      data: { seat_no: seat, stack: 10_000 },
+    });
+    expect(joined.ok()).toBeTruthy();
+    players.push({ user, sessionId: session.session_id, seat });
+  }
+
+  const clients = [];
+  for (const player of players) {
+    const context = await browser.newContext();
+    await context.addInitScript((sessionId) => {
+      localStorage.setItem("inarena_session_id", sessionId);
+    }, player.sessionId);
+    const playerPage = await context.newPage();
+    await playerPage.goto("/");
+    await playerPage.getByRole("button", { name: "ONLINE", exact: false }).click();
+    const card = playerPage.locator(".lobby-card").filter({ hasText: "Functional cash loop" });
+    await card.getByRole("button", { name: "Открыть" }).click();
+    await expect(playerPage.getByRole("heading", { name: "Functional cash loop" })).toBeVisible();
+    clients.push({ ...player, context, page: playerPage });
+  }
+
+  const started = await request.post(
+    `${API}/api/v1/operator/tables/${table.id}/start-hand`,
+    { headers, data: {} },
+  );
+  expect(started.ok()).toBeTruthy();
+  const firstHand = await started.json();
+  const firstHandId = firstHand.active_hand.hand_id;
+  const actionSeat = firstHand.active_hand.action_seat;
+  const actor = clients.find((client) => client.seat === actionSeat);
+  const observer = clients.find((client) => client.seat !== actionSeat);
+  expect(actor).toBeTruthy();
+  expect(observer).toBeTruthy();
+
+  await expect(actor!.page.getByLabel("Ваши карты")).toBeVisible();
+  await expect(actor!.page.getByLabel("Действия игрока")).toBeVisible();
+  await expect(actor!.page.getByRole("button", { name: "Fold" })).toBeVisible();
+  await expect(actor!.page.getByRole("button", { name: /Call|Check/ })).toBeVisible();
+  await expect(actor!.page.getByRole("button", { name: /Raise|Bet/ })).toBeVisible();
+  await expect(observer!.page.getByText("Ожидание хода соперника…")).toBeVisible();
+
+  await actor!.page.getByRole("button", { name: "Fold" }).click();
+
+  await expect.poll(async () => {
+    const state = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+    return state.active_hand?.hand_id ?? null;
+  }, { timeout: 10_000 }).not.toBe(firstHandId);
+
+  const nextState = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+  expect(nextState.status).toBe("playing");
+  expect(nextState.active_hand).not.toBeNull();
+  expect(nextState.active_hand.pot).toBe(150);
+
+  const nextActor = clients.find((client) => client.seat === nextState.active_hand.action_seat);
+  await expect(nextActor!.page.getByLabel("Действия игрока")).toBeVisible();
+
+  for (const client of clients) {
+    await client.context.close();
+  }
+});
