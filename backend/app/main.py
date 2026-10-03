@@ -362,12 +362,21 @@ def _schedule_next_cash_hand(state: dict[str, Any]) -> None:
         asyncio.create_task(_start_next_cash_hand_after_delay(str(state["id"])))
 
 
+def _reconcile_ready_cash_tables() -> None:
+    # A deploy/restart can happen while players are already seated. Re-run
+    # the same readiness rule at startup so those tables do not remain stuck
+    # in open state waiting for a fresh join event.
+    for state in list_tables():
+        _schedule_next_cash_hand(state)
+
+
 @app.on_event("startup")
 async def startup() -> None:
     init_database_pool()
     ensure_schema()
     if manager.coordinator.configured:
         await manager.coordinator.start(manager.receive_remote_event)
+    _reconcile_ready_cash_tables()
 
 
 @app.on_event("shutdown")
