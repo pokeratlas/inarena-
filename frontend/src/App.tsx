@@ -149,6 +149,22 @@ function PlayerActions({
   const [nowEpoch, setNowEpoch] = useState(() => Math.floor(Date.now() / 1000));
 
   const hand = table.active_hand;
+  const playerSeat = useMemo(
+    () => table.seats.find((seat) => seat.player_id === playerId) ?? null,
+    [table.seats, playerId],
+  );
+  const currentBet = Number(hand?.state.current_bet ?? 0);
+  const minRaise = Number(hand?.state.min_raise ?? table.big_blind);
+  const streetContributions =
+    (hand?.state.street_contributions as Record<string, number> | undefined) ?? {};
+  const contribution = playerSeat
+    ? Number(streetContributions[playerSeat.player_id] ?? 0)
+    : 0;
+  const maxTarget = playerSeat ? contribution + playerSeat.stack : 0;
+  const minTarget = Math.min(
+    maxTarget,
+    currentBet === 0 ? minRaise : currentBet + minRaise,
+  );
 
   useEffect(() => {
     const timer = window.setInterval(
@@ -157,10 +173,29 @@ function PlayerActions({
     );
     return () => window.clearInterval(timer);
   }, []);
-  const playerSeat = useMemo(
-    () => table.seats.find((seat) => seat.player_id === playerId) ?? null,
-    [table.seats, playerId],
-  );
+
+  useEffect(() => {
+    if (
+      !hand ||
+      !playerSeat ||
+      playerSeat.seat_no !== hand.action_seat ||
+      maxTarget <= 0
+    ) {
+      return;
+    }
+    setAmount((current) =>
+      current >= minTarget && current <= maxTarget
+        ? current
+        : minTarget,
+    );
+  }, [
+    hand?.hand_id,
+    hand?.state.action_no,
+    playerSeat?.seat_no,
+    hand?.action_seat,
+    minTarget,
+    maxTarget,
+  ]);
 
   if (
     !hand ||
@@ -175,17 +210,27 @@ function PlayerActions({
   const deadline = Number(hand.state.action_deadline_epoch ?? 0);
   const secondsLeft = deadline > 0 ? Math.max(0, deadline - nowEpoch) : null;
   const interactionLocked = pending || !connected || secondsLeft === 0;
-  const currentBet = Number(hand.state.current_bet ?? 0);
-  const streetContributions =
-    (hand.state.street_contributions as Record<string, number> | undefined) ?? {};
-  const contribution = Number(streetContributions[playerSeat.player_id] ?? 0);
   const facingBet = currentBet > contribution;
   const callAmount = Math.max(0, currentBet - contribution);
-  const maxTarget = contribution + playerSeat.stack;
+  const clampTarget = (target: number) =>
+    Math.min(maxTarget, Math.max(minTarget, target));
   const presetTargets = [
-    { label: "1/2 Pot", value: Math.min(maxTarget, Math.max(currentBet + 1, currentBet + Math.ceil(hand.pot * 0.5))) },
-    { label: "3/4 Pot", value: Math.min(maxTarget, Math.max(currentBet + 1, currentBet + Math.ceil(hand.pot * 0.75))) },
-    { label: "Pot", value: Math.min(maxTarget, Math.max(currentBet + 1, currentBet + hand.pot)) },
+    {
+      label: "1/3",
+      value: clampTarget(currentBet + Math.ceil(hand.pot / 3)),
+    },
+    {
+      label: "1/2",
+      value: clampTarget(currentBet + Math.ceil(hand.pot * 0.5)),
+    },
+    {
+      label: "2/3",
+      value: clampTarget(currentBet + Math.ceil((hand.pot * 2) / 3)),
+    },
+    {
+      label: "Pot",
+      value: clampTarget(currentBet + hand.pot),
+    },
     { label: "All-in", value: maxTarget },
   ];
 
@@ -193,6 +238,14 @@ function PlayerActions({
     action: "fold" | "check" | "call" | "bet" | "raise",
     actionAmount?: number,
   ) => {
+    if (
+      actionAmount !== undefined &&
+      actionAmount === maxTarget &&
+      maxTarget > 0 &&
+      !window.confirm("Подтвердить All-in?")
+    ) {
+      return;
+    }
     setPending(true);
     setActionError(null);
     try {
@@ -210,30 +263,61 @@ function PlayerActions({
     }
   };
 
+  const primaryLabel =
+    amount === maxTarget && maxTarget > 0
+      ? "All-in " + amount
+      : currentBet > 0
+        ? "Raise to " + amount
+        : "Bet " + amount;
+
   return (
-    <section className="player-actions" aria-label="Действия игрока">
+    <section className="player-actions player-actions-pro" aria-label="Действия игрока">
       <div className="action-meta">
-        <p>Ваш ход</p>
+        <div>
+          <p>Ваш ход</p>
+          <small>
+            {facingBet ? "Нужно добавить " + callAmount : "Можно сделать check"}
+          </small>
+        </div>
         <span className={connected ? "action-clock" : "action-clock reconnecting"}>
           {!connected
             ? "Reconnecting…"
             : secondsLeft === null
               ? "—"
-              : `${secondsLeft}s`}
+              : secondsLeft + "s"}
         </span>
       </div>
-      <button className="action-button action-danger" disabled={interactionLocked} type="button" onClick={() => void act("fold")}>
-        Fold
-      </button>
-      {facingBet ? (
-        <button className="action-button" disabled={interactionLocked} type="button" onClick={() => void act("call")}>
-          Call {callAmount}
+
+      <div className="primary-action-row">
+        <button
+          className="action-button action-danger"
+          disabled={interactionLocked}
+          type="button"
+          onClick={() => void act("fold")}
+        >
+          Fold
         </button>
-      ) : (
-        <button className="action-button" disabled={interactionLocked} type="button" onClick={() => void act("check")}>
-          Check
-        </button>
-      )}
+        {facingBet ? (
+          <button
+            className="action-button action-call"
+            disabled={interactionLocked}
+            type="button"
+            onClick={() => void act("call")}
+          >
+            Call {callAmount}
+          </button>
+        ) : (
+          <button
+            className="action-button action-call"
+            disabled={interactionLocked}
+            type="button"
+            onClick={() => void act("check")}
+          >
+            Check
+          </button>
+        )}
+      </div>
+
       <div className="bet-presets" aria-label="Быстрый размер ставки">
         {presetTargets.map((preset) => (
           <button
@@ -247,25 +331,39 @@ function PlayerActions({
           </button>
         ))}
       </div>
-      <label className="bet-control">
-        Ставка
+
+      <label className="bet-slider">
+        <span>
+          Размер
+          <strong>{amount}</strong>
+        </span>
         <input
-          min={0}
-          type="number"
-          value={amount}
+          aria-label="Размер ставки"
+          min={minTarget}
+          max={Math.max(minTarget, maxTarget)}
+          step={1}
+          type="range"
+          value={Math.min(Math.max(amount, minTarget), Math.max(minTarget, maxTarget))}
+          disabled={interactionLocked || maxTarget <= currentBet}
           onChange={(event) => setAmount(Number(event.target.value))}
         />
       </label>
+
       <button
-        className="action-button action-primary"
-        disabled={interactionLocked || amount <= currentBet}
+        className="action-button action-primary action-raise"
+        disabled={
+          interactionLocked ||
+          amount <= currentBet ||
+          amount > maxTarget
+        }
         type="button"
         onClick={() =>
           void act(currentBet > 0 ? "raise" : "bet", amount)
         }
       >
-        {currentBet > 0 ? "Raise" : "Bet"}
+        {primaryLabel}
       </button>
+
       {!connected ? (
         <p className="action-state" role="status">
           Соединение восстанавливается. Действия временно заблокированы.
@@ -593,9 +691,20 @@ function OnlineTable({
               key={seat.seat_no}
             >
               <div className="player-pod-top">
-                <span className="player-avatar">P{seat.seat_no}</span>
+                {seat.photo_url ? (
+                  <img
+                    className="player-avatar player-avatar-photo"
+                    src={seat.photo_url}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <span className="player-avatar">
+                    {(seat.display_name?.trim()?.[0] ?? "P").toUpperCase()}
+                  </span>
+                )}
                 <div>
-                  <strong>Игрок {seat.seat_no}</strong>
+                  <strong>{seat.display_name ?? "Игрок " + seat.seat_no}</strong>
                   <small>{seat.stack.toLocaleString()} chips</small>
                 </div>
               </div>
