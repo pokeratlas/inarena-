@@ -328,13 +328,14 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 _cash_reconcile_task: asyncio.Task[None] | None = None
+_cash_pending_tables: set[str] = set()
 
 
 async def _start_next_cash_hand_after_delay(table_id: str) -> None:
     # Cash tables start automatically whenever two funded seated players
-    # are ready, including the first hand and all following hands.
-    await asyncio.sleep(2)
+    # are ready. The short delay is also the leave-after-hand window.
     try:
+        await asyncio.sleep(2)
         state = get_table_state(table_id)
         funded = [
             seat
@@ -352,15 +353,20 @@ async def _start_next_cash_hand_after_delay(table_id: str) -> None:
         await manager.broadcast_state(table_id, "hand_started")
     except (ConflictError, NotFoundError):
         return
+    finally:
+        _cash_pending_tables.discard(table_id)
 
 
 def _schedule_next_cash_hand(state: dict[str, Any]) -> None:
+    table_id = str(state["id"])
     if (
         state.get("table_mode") == "cash"
         and state.get("status") == "open"
         and state.get("active_hand") is None
+        and table_id not in _cash_pending_tables
     ):
-        asyncio.create_task(_start_next_cash_hand_after_delay(str(state["id"])))
+        _cash_pending_tables.add(table_id)
+        asyncio.create_task(_start_next_cash_hand_after_delay(table_id))
 
 
 def _reconcile_ready_cash_tables() -> None:
@@ -388,14 +394,7 @@ async def _cash_reconcile_loop() -> None:
                 ]
                 if len(funded) < 2:
                     continue
-                try:
-                    start_hand(str(state["id"]))
-                    await manager.broadcast_state(
-                        str(state["id"]),
-                        "hand_started",
-                    )
-                except (ConflictError, NotFoundError):
-                    continue
+                _schedule_next_cash_hand(state)
 
 
 @app.on_event("startup")
