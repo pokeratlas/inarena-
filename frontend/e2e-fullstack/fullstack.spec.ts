@@ -281,8 +281,9 @@ test("two player clients receive actions and cash game continues to next hand", 
 
   await expect.poll(async () => {
     const state = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
-    return state.active_hand?.hand_id ?? null;
-  }, { timeout: 10_000 }).not.toBe(firstHandId);
+    const handId = state.active_hand?.hand_id ?? null;
+    return handId !== null && handId !== firstHandId;
+  }, { timeout: 10_000 }).toBe(true);
 
   const nextState = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
   expect(nextState.status).toBe("playing");
