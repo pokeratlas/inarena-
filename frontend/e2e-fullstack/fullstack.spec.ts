@@ -93,7 +93,9 @@ test("authenticated player restores session and joins a real cash table", async 
 
   await page.getByRole("button", { name: /Сесть · Seat 1/ }).click();
   await expect(page.getByLabel("Выбор buy-in")).toBeVisible();
-  await expect(page.getByText(/Баланс 20,?000/)).toBeVisible();
+  await expect(
+    page.getByLabel("Выбор buy-in").getByText(/Баланс 20,?000/),
+  ).toBeVisible();
   await page.getByRole("button", { name: "50 BB" }).click();
   await page.getByRole("button", { name: /Сесть за стол/ }).click();
 
