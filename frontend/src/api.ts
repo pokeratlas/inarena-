@@ -203,6 +203,44 @@ export async function refreshCurrentSession(
 }
 
 
+export async function sitOutAuthenticated(
+  tableId: string,
+  sessionId: string,
+  idempotencyKey = createIdempotencyKey(),
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tables/${tableId}/sit-out-auth`,
+    {
+      method: "POST",
+      headers: mutationHeaders(sessionId, idempotencyKey),
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Unable to sit out");
+  }
+  return response.json();
+}
+
+export async function sitInAuthenticated(
+  tableId: string,
+  sessionId: string,
+  idempotencyKey = createIdempotencyKey(),
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tables/${tableId}/sit-in-auth`,
+    {
+      method: "POST",
+      headers: mutationHeaders(sessionId, idempotencyKey),
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Unable to sit in");
+  }
+  return response.json();
+}
+
 export async function standAuthenticated(
   tableId: string,
   sessionId: string,

@@ -1955,7 +1955,8 @@ def submit_player_action(
             """
             SELECT seat_no, stack
             FROM runtime_seats
-            WHERE table_id = ? AND player_id = ? AND status = 'seated'
+            WHERE table_id = ? AND player_id = ?
+              AND status IN ('seated', 'sitting_out_next')
             """,
             (table_id, player_id),
         ).fetchone()
@@ -2036,7 +2037,8 @@ def submit_player_action(
             """
             SELECT seat_no, player_id, stack
             FROM runtime_seats
-            WHERE table_id = ? AND status = 'seated'
+            WHERE table_id = ?
+              AND status IN ('seated', 'sitting_out_next')
             ORDER BY seat_no
             """,
             (table_id,),
@@ -2314,7 +2316,8 @@ def _settle_payouts_in_conn(
         """
         SELECT player_id, stack
         FROM runtime_seats
-        WHERE table_id = ? AND status = 'seated'
+        WHERE table_id = ?
+          AND status IN ('seated', 'sitting_out_next')
         ORDER BY seat_no
         """,
         (table_id,),
@@ -2449,6 +2452,24 @@ def _settle_payouts_in_conn(
         ),
     )
     conn.execute("DELETE FROM active_hands WHERE table_id = ?", (table_id,))
+    if table_mode == "cash":
+        conn.execute(
+            """
+            UPDATE runtime_seats
+            SET status = CASE
+                WHEN status = 'sitting_out_next' THEN 'sitting_out'
+                WHEN status = 'sitting_in_next' THEN 'seated'
+                ELSE status
+            END,
+            updated_at = CASE
+                WHEN status IN ('sitting_out_next', 'sitting_in_next')
+                THEN CURRENT_TIMESTAMP
+                ELSE updated_at
+            END
+            WHERE table_id = ?
+            """,
+            (table_id,),
+        )
     conn.execute(
         """
         UPDATE runtime_tables
@@ -3085,6 +3106,119 @@ def tournament_addon(table_id: str, session_id: str) -> dict:
             (table_id, player_id, amount),
         )
     return get_table_state(table_id)
+
+
+def sit_out_with_session(
+    table_id: str,
+    session_id: str,
+    mutation_receipt: dict | None = None,
+) -> dict:
+    session = get_session(session_id)
+    player_id = session["user_id"]
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            "SELECT table_mode FROM runtime_tables WHERE id = ?",
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "cash":
+            raise ConflictError("sit out is available only at cash tables")
+
+        seat = conn.execute(
+            """
+            SELECT status
+            FROM runtime_seats
+            WHERE table_id = ? AND player_id = ?
+            """,
+            (table_id, player_id),
+        ).fetchone()
+        if seat is None:
+            raise NotFoundError("player is not seated")
+
+        active = conn.execute(
+            "SELECT 1 FROM active_hands WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()
+        if seat["status"] in {"sitting_out", "sitting_out_next"}:
+            result = _get_table_state_with_conn(conn, table_id)
+            _store_mutation_receipt_in_conn(conn, mutation_receipt, result)
+            return result
+
+        next_status = "sitting_out_next" if active else "sitting_out"
+        conn.execute(
+            """
+            UPDATE runtime_seats
+            SET status = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE table_id = ? AND player_id = ?
+            """,
+            (next_status, table_id, player_id),
+        )
+        _enqueue_realtime_outbox(conn, table_id, "player_sit_out")
+        result = _get_table_state_with_conn(conn, table_id)
+        _store_mutation_receipt_in_conn(conn, mutation_receipt, result)
+    return result
+
+
+def sit_in_with_session(
+    table_id: str,
+    session_id: str,
+    mutation_receipt: dict | None = None,
+) -> dict:
+    session = get_session(session_id)
+    player_id = session["user_id"]
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            "SELECT table_mode FROM runtime_tables WHERE id = ?",
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "cash":
+            raise ConflictError("sit in is available only at cash tables")
+
+        seat = conn.execute(
+            """
+            SELECT status
+            FROM runtime_seats
+            WHERE table_id = ? AND player_id = ?
+            """,
+            (table_id, player_id),
+        ).fetchone()
+        if seat is None:
+            raise NotFoundError("player is not seated")
+
+        active = conn.execute(
+            "SELECT 1 FROM active_hands WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()
+
+        if seat["status"] == "seated":
+            result = _get_table_state_with_conn(conn, table_id)
+            _store_mutation_receipt_in_conn(conn, mutation_receipt, result)
+            return result
+
+        if active:
+            next_status = (
+                "seated"
+                if seat["status"] == "sitting_out_next"
+                else "sitting_in_next"
+            )
+        else:
+            next_status = "seated"
+
+        conn.execute(
+            """
+            UPDATE runtime_seats
+            SET status = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE table_id = ? AND player_id = ?
+            """,
+            (next_status, table_id, player_id),
+        )
+        _enqueue_realtime_outbox(conn, table_id, "player_sit_in")
+        result = _get_table_state_with_conn(conn, table_id)
+        _store_mutation_receipt_in_conn(conn, mutation_receipt, result)
+    return result
 
 
 def stand_with_session(

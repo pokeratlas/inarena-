@@ -92,6 +92,12 @@ test("authenticated player restores session and joins a real cash table", async 
   await expect(page.getByText(/Баланс 20000 chips/)).toBeVisible();
 
   await page.getByRole("button", { name: /Сесть · Seat 1/ }).click();
+  await expect(page.getByLabel("Выбор buy-in")).toBeVisible();
+  await expect(
+    page.getByLabel("Выбор buy-in").getByText(/Баланс 20,?000/),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "50 BB" }).click();
+  await page.getByRole("button", { name: /Сесть за стол/ }).click();
 
   await expect(page.getByText("E2E Cash Table")).toBeVisible();
   await expect(page.getByText("ВЫ", { exact: true })).toBeVisible();
@@ -103,7 +109,7 @@ test("authenticated player restores session and joins a real cash table", async 
   const state = await stateResponse.json();
   expect(state.seats).toHaveLength(1);
   expect(state.seats[0].player_id).toBe("e2e-player");
-  expect(state.seats[0].stack).toBe(10_000);
+  expect(state.seats[0].stack).toBe(5_000);
 });
 
 
@@ -465,4 +471,100 @@ test("table state exposes only public player identity fields", async ({ request 
   expect(JSON.stringify(state.seats[0])).not.toContain(session.session_id);
   expect(JSON.stringify(state.seats[0])).not.toContain("private-query");
   expect(JSON.stringify(state.seats[0])).not.toContain("language_code");
+});
+
+
+test("cash player can sit out during a hand and return for the next one", async ({ browser, request }) => {
+  const token = await createOperatorToken(request);
+  const headers = { "X-Operator-Key": token };
+  const created = await request.post(`${API}/api/v1/operator/tables`, {
+    headers,
+    data: { name: "Sit out cash" },
+  });
+  expect(created.ok()).toBeTruthy();
+  const table = await created.json();
+
+  const players: Array<{ user: string; sessionId: string; seat: number }> = [];
+  for (const seat of [1, 2]) {
+    const user = `sitout-player-${seat}`;
+    expect((await request.post(`${API}/api/v1/operator/balance`, {
+      headers,
+      data: { user_id: user, delta: 20_000 },
+    })).ok()).toBeTruthy();
+    const session = await (await request.post(`${API}/api/v1/sessions`, {
+      data: { user_id: user, provider: "test", data: {} },
+    })).json();
+    expect((await request.post(`${API}/api/v1/tables/${table.id}/join-auth`, {
+      headers: {
+        "X-Session-ID": session.session_id,
+        "Idempotency-Key": `sitout-join-${seat}`,
+      },
+      data: { seat_no: seat, stack: 10_000 },
+    })).ok()).toBeTruthy();
+    players.push({ user, sessionId: session.session_id, seat });
+  }
+
+  await expect.poll(async () => {
+    const state = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+    return state.active_hand?.action_seat ?? null;
+  }, { timeout: 10_000 }).not.toBeNull();
+
+  const playing = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+  const actor = players.find((player) => player.seat === playing.active_hand.action_seat)!;
+
+  const context = await browser.newContext();
+  await context.addInitScript((id) => {
+    localStorage.setItem("inarena_session_id", id);
+  }, actor.sessionId);
+  const page = await context.newPage();
+  await page.goto("/");
+  await page.getByRole("button", { name: "ONLINE", exact: false }).click();
+  await page
+    .locator(".lobby-card")
+    .filter({ hasText: "Sit out cash" })
+    .getByRole("button", { name: "Открыть" })
+    .click();
+
+  await expect(page.getByRole("button", { name: "Sit out", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Sit out", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Sit out после раздачи" })).toBeVisible();
+
+  const afterRequest = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+  expect(
+    afterRequest.seats.find((seat: any) => seat.player_id === actor.user)?.status,
+  ).toBe("sitting_out_next");
+
+  await expect(page.getByRole("button", { name: "Fold" })).toBeVisible();
+  await page.getByRole("button", { name: "Fold" }).click();
+
+  await expect.poll(async () => {
+    const state = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+    const actorSeat = state.seats.find((seat: any) => seat.player_id === actor.user);
+    return {
+      activeHand: state.active_hand,
+      actorStatus: actorSeat?.status ?? null,
+      status: state.status,
+    };
+  }, { timeout: 10_000 }).toEqual({
+    activeHand: null,
+    actorStatus: "sitting_out",
+    status: "open",
+  });
+
+  await expect(page.getByRole("button", { name: "Вернуться в игру" })).toBeVisible();
+  await page.getByRole("button", { name: "Вернуться в игру" }).click();
+
+  await expect.poll(async () => {
+    const state = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+    return {
+      hand: state.active_hand?.hand_id ?? null,
+      actorStatus:
+        state.seats.find((seat: any) => seat.player_id === actor.user)?.status ?? null,
+    };
+  }, { timeout: 10_000 }).toEqual({
+    hand: expect.any(String),
+    actorStatus: "seated",
+  });
+
+  await context.close();
 });
