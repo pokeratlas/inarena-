@@ -1259,3 +1259,42 @@ body,
     padding: 9px;
   }
 }
+
+
+/* Poker card suit rendering */
+.playing-card {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  line-height: 1;
+}
+
+.card-rank {
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.card-suit {
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.card-red {
+  color: #d92d3a;
+}
+
+.card-black {
+  color: #111827;
+}
+
+.hole-cards-redesign .card-rank {
+  font-size: 20px;
+}
+
+.hole-cards-redesign .card-suit {
+  font-size: 22px;
+}
