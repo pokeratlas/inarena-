@@ -203,3 +203,33 @@ def test_table_creation_requires_operator_write_scope(tmp_path, monkeypatch):
         created = client.post("/api/v1/operator/tables", headers={"X-Operator-Key": auth.json()["token"]}, json={"name": "Owner table"})
         assert created.status_code == 201
         assert created.json()["name"] == "Owner table"
+
+
+def test_remembered_session_lasts_30_days_and_can_be_revoked(tmp_path, monkeypatch):
+    main, _ = load_app(tmp_path, monkeypatch)
+    now = int(time.time())
+    with TestClient(main.app) as client:
+        auth = client.post('/api/v1/operator/auth',
+            headers={'X-Operator-Key': 'bootstrap-secret'},
+            json={'scopes': ['operator:read'], 'remember_me': True})
+        assert auth.status_code == 200
+        session = auth.json()
+        assert now + 30 * 86400 <= session['expires_at_epoch'] <= int(time.time()) + 30 * 86400
+        headers = {'X-Operator-Key': session['token']}
+        monkeypatch.setattr('app.service.time.time', lambda: now + 7200)
+        assert client.get('/api/v1/operator/dashboard', headers=headers).status_code == 200
+        assert client.post('/api/v1/operator/balance', headers=headers,
+                           json={'user_id': 'p1', 'delta': 100}).status_code == 401
+        assert client.post('/api/v1/operator/auth/revoke', headers=headers).status_code == 204
+        assert client.get('/api/v1/operator/dashboard', headers=headers).status_code == 401
+
+
+def test_unremembered_session_retains_configured_ttl(tmp_path, monkeypatch):
+    main, _ = load_app(tmp_path, monkeypatch)
+    monkeypatch.setenv('INARENA_OPERATOR_SESSION_TTL_SECONDS', '600')
+    now = int(time.time())
+    with TestClient(main.app) as client:
+        auth = client.post('/api/v1/operator/auth',
+            headers={'X-Operator-Key': 'bootstrap-secret'}, json={'scopes': []})
+        assert auth.status_code == 200
+        assert now + 600 <= auth.json()['expires_at_epoch'] <= int(time.time()) + 600

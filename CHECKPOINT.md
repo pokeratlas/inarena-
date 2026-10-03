@@ -684,3 +684,8 @@ Same-SHA CI and staging verification required before promotion.
 ## 2026-10-04 — approved owner session persistence
 
 Persist only the scoped operator session token across tabs; migrate existing tab sessions on successful validation. Never persist the bootstrap key. Hide bootstrap form while authenticated. Logout and unauthorized/expired responses clear both stores; backend TTL and authorization unchanged. Fullstack coverage verifies reopening, logout and invalid token recovery.
+
+
+## 2026-10-04 — approved remembered owner login
+
+Owner explicitly requested longer remembered login. Dashboard requests a fixed 30-day scoped session with remember_me=true; API default remains configured short TTL. No bootstrap key persistence, no automatic renewal, existing hashing, scopes, revocation and expiration unchanged. UI communicates 30-day lifetime. Tests cover duration, access after two hours, read-scope restrictions, revocation and default TTL. Existing sessions retain their original expiration.

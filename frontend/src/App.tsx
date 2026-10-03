@@ -1227,7 +1227,9 @@ function OperatorDashboardView() {
         ) : null}
       </header>
 
-      {!dashboard ? <div className="operator-login">
+      {!dashboard ? <>
+      <p>Вход будет сохранён на этом устройстве на 30 дней.</p>
+      <div className="operator-login">
         <input
           type="password"
           placeholder="Bootstrap operator key"
@@ -1239,7 +1241,7 @@ function OperatorDashboardView() {
           type="button"
           disabled={!bootstrapKey}
           onClick={() =>
-            void authenticateOperator(bootstrapKey)
+            void authenticateOperator(bootstrapKey, [], true)
               .then((session) => {
                 setOperatorKey(session.token);
                 setBootstrapKey("");
@@ -1260,7 +1262,8 @@ function OperatorDashboardView() {
         >
           Получить сессию
         </button>
-      </div> : null}
+      </div>
+      </> : null}
 
       {error ? <p role="alert">{error}</p> : null}
 

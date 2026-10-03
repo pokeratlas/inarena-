@@ -232,6 +232,7 @@ class TableConfigRequest(BaseModel):
 
 class OperatorSessionRequest(BaseModel):
     scopes: list[str] = Field(default_factory=list)
+    remember_me: bool = False
 
 
 class BalanceAdjustRequest(BaseModel):
@@ -582,7 +583,7 @@ def operator_authenticate(
 ) -> dict[str, Any]:
     _require_operator_bootstrap(x_operator_key)
     try:
-        return create_operator_session(payload.scopes or None)
+        return create_operator_session(payload.scopes or None, remember_me=payload.remember_me)
     except Exception as exc:
         raise _http_error(exc) from exc
 

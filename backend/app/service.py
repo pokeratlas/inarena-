@@ -2833,7 +2833,9 @@ def _operator_session_ttl_seconds() -> int:
         return 3600
 
 
-def create_operator_session(scopes: list[str] | None = None) -> dict:
+def create_operator_session(
+    scopes: list[str] | None = None, *, remember_me: bool = False
+) -> dict:
     requested = list(dict.fromkeys(scopes or sorted(OPERATOR_SCOPES)))
     unknown = set(requested) - OPERATOR_SCOPES
     if unknown:
@@ -2843,7 +2845,8 @@ def create_operator_session(scopes: list[str] | None = None) -> dict:
 
     token = "ops_" + secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    expires_at_epoch = int(time.time()) + _operator_session_ttl_seconds()
+    ttl = 30 * 24 * 3600 if remember_me else _operator_session_ttl_seconds()
+    expires_at_epoch = int(time.time()) + ttl
 
     with transaction() as conn:
         conn.execute(

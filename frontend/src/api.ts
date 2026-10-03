@@ -269,6 +269,7 @@ export interface OperatorSession {
 export async function authenticateOperator(
   bootstrapKey: string,
   scopes: string[] = [],
+  rememberMe = false,
 ): Promise<OperatorSession> {
   const response = await fetch(`${API_BASE}/api/v1/operator/auth`, {
     method: "POST",
@@ -276,7 +277,7 @@ export async function authenticateOperator(
       "Content-Type": "application/json",
       "X-Operator-Key": bootstrapKey,
     },
-    body: JSON.stringify({ scopes }),
+    body: JSON.stringify({ scopes, remember_me: rememberMe }),
   });
   if (!response.ok) throw new Error("Operator authentication failed");
   return response.json();
