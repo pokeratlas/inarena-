@@ -590,3 +590,17 @@ export async function getReleaseMetadata(): Promise<ReleaseMetadata> {
   if (!response.ok) throw new Error("Unable to load release metadata");
   return response.json();
 }
+
+
+export async function operatorStartHand(tableId: string, operatorKey: string): Promise<TableState> {
+  const response = await fetch(`${API_BASE}/api/v1/operator/tables/${tableId}/start-hand`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Operator-Key": operatorKey },
+    body: JSON.stringify({}),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Не удалось начать раздачу");
+  }
+  return response.json();
+}

@@ -689,3 +689,8 @@ Persist only the scoped operator session token across tabs; migrate existing tab
 ## 2026-10-04 — approved remembered owner login
 
 Owner explicitly requested longer remembered login. Dashboard requests a fixed 30-day scoped session with remember_me=true; API default remains configured short TTL. No bootstrap key persistence, no automatic renewal, existing hashing, scopes, revocation and expiration unchanged. UI communicates 30-day lifetime. Tests cover duration, access after two hours, read-scope restrictions, revocation and default TTL. Existing sessions retain their original expiration.
+
+
+## 2026-10-04 — owner hand start control
+
+Two staging players seated but active_hand remained null: start requires existing operator endpoint. Expose cash-table start only in authenticated Dashboard; pending and non-open states disable action; display server rejection. No automatic dealing, player privileges, backend source or schema changes. Fullstack covers insufficient players, two-player preflop with 150 blinds pot, disabled duplicate start and absence from player UI.
