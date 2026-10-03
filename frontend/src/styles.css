@@ -1390,3 +1390,89 @@ body,
     font-size: 9px;
   }
 }
+
+
+/* Cash buy-in flow */
+.buyin-panel {
+  margin-top: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  display: grid;
+  gap: 12px;
+  background: rgba(7, 17, 36, 0.72);
+  border: 1px solid rgba(100, 132, 255, 0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+}
+
+.buyin-head,
+.buyin-range-copy,
+.buyin-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.buyin-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.buyin-head span {
+  color: #7f94bd;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .14em;
+}
+
+.buyin-head strong {
+  font-size: 17px;
+}
+
+.buyin-head small,
+.buyin-range-copy {
+  color: #8fa3c8;
+  font-size: 10px;
+}
+
+.buyin-presets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.buyin-presets button {
+  min-height: 36px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.09);
+  background: rgba(255,255,255,0.055);
+  color: #c7d3ea;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.buyin-presets button:disabled {
+  opacity: .4;
+}
+
+.buyin-panel input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: #5b7cff;
+}
+
+.buyin-actions .ghost-button,
+.buyin-actions .action-button {
+  flex: 1;
+  min-height: 42px;
+}
+
+.buyin-warning {
+  margin: 0;
+  color: #ffc0c7;
+  font-size: 10px;
+}
+
+.policy-actions .action-state {
+  flex-basis: 100%;
+}
