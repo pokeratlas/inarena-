@@ -24,6 +24,7 @@ import {
   operatorBlindScheduleCommand,
   operatorCloseTable,
   operatorCreateTable,
+  operatorStartHand,
   operatorTournamentCommand,
   operatorWindowControl,
   leaveCashWaitlist,
@@ -1161,6 +1162,7 @@ function OperatorDashboardView() {
   const [audit, setAudit] = useState<OperatorAuditEntry[]>([]);
   const [tableName, setTableName] = useState("");
   const [creatingTable, setCreatingTable] = useState(false);
+  const [startingHand, setStartingHand] = useState<string | null>(null);
   const [balanceUser, setBalanceUser] = useState("");
   const [balanceDelta, setBalanceDelta] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -1473,6 +1475,19 @@ function OperatorDashboardView() {
                   </>
                 ) : null}
                 <div className="operator-actions">
+                  {table.table_mode === "cash" ? <button
+                    className="action-button action-primary"
+                    type="button"
+                    disabled={table.status !== "open" || startingHand !== null}
+                    onClick={() => {
+                      setStartingHand(table.id);
+                      setError(null);
+                      void operatorStartHand(table.id, operatorKey)
+                        .then(() => load())
+                        .catch((cause) => setError(cause instanceof Error ? cause.message : "Не удалось начать раздачу"))
+                        .finally(() => setStartingHand(null));
+                    }}
+                  >{startingHand === table.id ? "Запуск…" : "Начать раздачу"}</button> : null}
                   <button
                     className="ghost-button action-danger"
                     type="button"
