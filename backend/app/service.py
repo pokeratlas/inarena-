@@ -1779,8 +1779,7 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
             """
             SELECT seat_no, player_id, stack
             FROM runtime_seats
-            WHERE table_id = ?
-              AND status IN ('seated', 'sitting_out_next')
+            WHERE table_id = ? AND status = 'seated'
             ORDER BY seat_no
             """,
             (table_id,),
@@ -2038,7 +2037,8 @@ def submit_player_action(
             """
             SELECT seat_no, player_id, stack
             FROM runtime_seats
-            WHERE table_id = ? AND status = 'seated'
+            WHERE table_id = ?
+              AND status IN ('seated', 'sitting_out_next')
             ORDER BY seat_no
             """,
             (table_id,),
