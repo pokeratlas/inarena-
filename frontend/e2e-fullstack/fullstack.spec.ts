@@ -342,3 +342,79 @@ test("cash watchdog starts a ready open table even when no join trigger fires", 
     pot: 150,
   });
 });
+
+
+test("player can request leave during a hand and is removed before next cash hand", async ({ browser, request }) => {
+  const token = await createOperatorToken(request);
+  const headers = { "X-Operator-Key": token };
+  const created = await request.post(`${API}/api/v1/operator/tables`, {
+    headers,
+    data: { name: "Leave after hand cash" },
+  });
+  expect(created.ok()).toBeTruthy();
+  const table = await created.json();
+
+  const players: Array<{ user: string; sessionId: string; seat: number }> = [];
+  for (const seat of [1, 2]) {
+    const user = `leave-player-${seat}`;
+    expect((await request.post(`${API}/api/v1/operator/balance`, {
+      headers,
+      data: { user_id: user, delta: 20_000 },
+    })).ok()).toBeTruthy();
+    const session = await (await request.post(`${API}/api/v1/sessions`, {
+      data: { user_id: user, provider: "test", data: {} },
+    })).json();
+    expect((await request.post(`${API}/api/v1/tables/${table.id}/join-auth`, {
+      headers: {
+        "X-Session-ID": session.session_id,
+        "Idempotency-Key": `leave-join-${seat}`,
+      },
+      data: { seat_no: seat, stack: 10_000 },
+    })).ok()).toBeTruthy();
+    players.push({ user, sessionId: session.session_id, seat });
+  }
+
+  await expect.poll(async () => {
+    const state = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+    return state.active_hand?.hand_id ?? null;
+  }, { timeout: 10_000 }).not.toBeNull();
+
+  const state = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+  const actionSeat = state.active_hand.action_seat;
+  const actorPlayer = players.find((p) => p.seat === actionSeat)!;
+  const leavingPlayer = players.find((p) => p.seat !== actionSeat)!;
+
+  const actorContext = await browser.newContext();
+  await actorContext.addInitScript((id) => localStorage.setItem("inarena_session_id", id), actorPlayer.sessionId);
+  const actorPage = await actorContext.newPage();
+  await actorPage.goto("/");
+  await actorPage.getByRole("button", { name: "ONLINE", exact: false }).click();
+  await actorPage.locator(".lobby-card").filter({ hasText: "Leave after hand cash" }).getByRole("button", { name: "Открыть" }).click();
+
+  const leaveContext = await browser.newContext();
+  await leaveContext.addInitScript((id) => localStorage.setItem("inarena_session_id", id), leavingPlayer.sessionId);
+  const leavePage = await leaveContext.newPage();
+  await leavePage.goto("/");
+  await leavePage.getByRole("button", { name: "ONLINE", exact: false }).click();
+  await leavePage.locator(".lobby-card").filter({ hasText: "Leave after hand cash" }).getByRole("button", { name: "Открыть" }).click();
+
+  const leaveButton = leavePage.getByRole("button", { name: "Покинуть стол" });
+  await expect(leaveButton).toBeVisible();
+  await leaveButton.click();
+  await expect(leavePage.getByRole("button", { name: "Выход после раздачи…" })).toBeVisible();
+
+  await actorPage.getByRole("button", { name: "Fold" }).click();
+
+  await expect.poll(async () => {
+    const next = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+    return next.seats.some((seat: any) => seat.player_id === leavingPlayer.user);
+  }, { timeout: 10_000 }).toBe(false);
+
+  const afterLeave = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+  expect(afterLeave.seats).toHaveLength(1);
+  expect(afterLeave.active_hand).toBeNull();
+  expect(afterLeave.status).toBe("open");
+
+  await actorContext.close();
+  await leaveContext.close();
+});

@@ -298,9 +298,53 @@ function TablePolicyControls({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [leaveAfterHand, setLeaveAfterHand] = useState(false);
   const seat = table.seats.find((item) => item.player_id === playerId) ?? null;
 
-  if (!seat || !sessionId || table.active_hand) return null;
+  useEffect(() => {
+    if (
+      !leaveAfterHand ||
+      table.active_hand ||
+      table.table_mode !== "cash" ||
+      !seat ||
+      !sessionId ||
+      pending
+    ) {
+      return;
+    }
+
+    let active = true;
+    setPending(true);
+    setError(null);
+    void standAuthenticated(table.id, sessionId)
+      .then(() => {
+        if (!active) return;
+        setLeaveAfterHand(false);
+        onLeave();
+      })
+      .catch((cause) => {
+        if (!active) return;
+        setError(cause instanceof Error ? cause.message : "Operation failed");
+      })
+      .finally(() => {
+        if (active) setPending(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    leaveAfterHand,
+    table.active_hand,
+    table.id,
+    table.table_mode,
+    seat,
+    sessionId,
+    pending,
+    onLeave,
+  ]);
+
+  if (!seat || !sessionId) return null;
 
   const run = async (operation: () => Promise<TableState>) => {
     setPending(true);
@@ -318,59 +362,72 @@ function TablePolicyControls({
   return (
     <section className="policy-actions" aria-label="Управление участием">
       {table.table_mode === "tournament" ? (
+        table.active_hand ? null : (
+          <>
+            {seat.status === "eliminated" &&
+            table.rebuy_enabled &&
+            table.rebuy_window_open &&
+            seat.rebuy_count < table.rebuy_max_per_player ? (
+              <button
+                className="action-button action-primary"
+                disabled={pending}
+                type="button"
+                onClick={() =>
+                  void run(() => tournamentRebuy(table.id, sessionId))
+                }
+              >
+                Rebuy +{table.rebuy_stack}
+              </button>
+            ) : null}
+            {seat.status === "seated" &&
+            table.addon_enabled &&
+            table.addon_window_open &&
+            seat.addon_used === 0 ? (
+              <button
+                className="action-button"
+                disabled={pending}
+                type="button"
+                onClick={() =>
+                  void run(() => tournamentAddon(table.id, sessionId))
+                }
+              >
+                Add-on +{table.addon_stack}
+              </button>
+            ) : null}
+          </>
+        )
+      ) : (
         <>
-          {seat.status === "eliminated" &&
-          table.rebuy_enabled &&
-          table.rebuy_window_open &&
-          seat.rebuy_count < table.rebuy_max_per_player ? (
-            <button
-              className="action-button action-primary"
-              disabled={pending}
-              type="button"
-              onClick={() =>
-                void run(() => tournamentRebuy(table.id, sessionId))
+          <button
+            className="action-button"
+            disabled={pending || leaveAfterHand}
+            type="button"
+            onClick={() => {
+              if (table.active_hand) {
+                setLeaveAfterHand(true);
+                setError(null);
+                return;
               }
-            >
-              Rebuy +{table.rebuy_stack}
-            </button>
-          ) : null}
-          {seat.status === "seated" &&
-          table.addon_enabled &&
-          table.addon_window_open &&
-          seat.addon_used === 0 ? (
-            <button
-              className="action-button"
-              disabled={pending}
-              type="button"
-              onClick={() =>
-                void run(() => tournamentAddon(table.id, sessionId))
-              }
-            >
-              Add-on +{table.addon_stack}
-            </button>
+              void run(async () => {
+                const state = await standAuthenticated(table.id, sessionId);
+                onLeave();
+                return state;
+              });
+            }}
+          >
+            {leaveAfterHand ? "Выход после раздачи…" : "Покинуть стол"}
+          </button>
+          {table.active_hand && leaveAfterHand ? (
+            <p className="action-state" role="status">
+              Вы покинете стол сразу после текущей раздачи.
+            </p>
           ) : null}
         </>
-      ) : (
-        <button
-          className="action-button"
-          disabled={pending}
-          type="button"
-          onClick={() =>
-            void run(async () => {
-              const state = await standAuthenticated(table.id, sessionId);
-              onLeave();
-              return state;
-            })
-          }
-        >
-          Покинуть стол
-        </button>
       )}
       {error ? <p role="alert">{error}</p> : null}
     </section>
   );
 }
-
 
 function OnlineTable({
   table,
