@@ -100,6 +100,8 @@ from .service import (
     store_idempotent_result,
     stand,
     stand_with_session,
+    sit_out_with_session,
+    sit_in_with_session,
     start_hand,
     submit_player_action,
     submit_player_action_with_session,
@@ -905,6 +907,91 @@ async def api_join(table_id: str, payload: JoinRequest) -> dict[str, Any]:
     try:
         state = join_table(table_id, payload.player_id, payload.seat_no, payload.stack)
         await manager.broadcast_state(table_id, "player_joined")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tables/{table_id}/sit-out-auth")
+async def api_sit_out_authenticated(
+    table_id: str,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        request_payload = {"table_id": table_id}
+        replay = _idempotent_replay(
+            x_session_id,
+            "sit-out-auth",
+            idempotency_key,
+            request_payload,
+        )
+        if replay is not None:
+            return replay
+        receipt_context = _mutation_receipt_context(
+            x_session_id,
+            "sit-out-auth",
+            idempotency_key,
+            request_payload,
+        )
+        state = sit_out_with_session(
+            table_id,
+            x_session_id,
+            receipt_context,
+        )
+        _idempotent_store(
+            x_session_id,
+            "sit-out-auth",
+            idempotency_key,
+            request_payload,
+            state,
+        )
+        await manager.broadcast_state(table_id, "player_sit_out")
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tables/{table_id}/sit-in-auth")
+async def api_sit_in_authenticated(
+    table_id: str,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        request_payload = {"table_id": table_id}
+        replay = _idempotent_replay(
+            x_session_id,
+            "sit-in-auth",
+            idempotency_key,
+            request_payload,
+        )
+        if replay is not None:
+            return replay
+        receipt_context = _mutation_receipt_context(
+            x_session_id,
+            "sit-in-auth",
+            idempotency_key,
+            request_payload,
+        )
+        state = sit_in_with_session(
+            table_id,
+            x_session_id,
+            receipt_context,
+        )
+        _idempotent_store(
+            x_session_id,
+            "sit-in-auth",
+            idempotency_key,
+            request_payload,
+            state,
+        )
+        await manager.broadcast_state(table_id, "player_sit_in")
+        _schedule_next_cash_hand(state)
         return state
     except Exception as exc:
         raise _http_error(exc) from exc
