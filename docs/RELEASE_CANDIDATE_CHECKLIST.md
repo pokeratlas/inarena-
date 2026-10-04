@@ -82,7 +82,7 @@ Review:
 - loading/error/empty states
 - reconnect state
 - long player names
-- 9-seat table density
+- 7-seat table density
 
 ## Closed-beta exit criteria
 - no blocker/critical bugs open

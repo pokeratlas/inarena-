@@ -12,23 +12,29 @@ not automatically pause the agreed work.
   reconnect recovery, send throttle and desktop/mobile Guardian coverage.
 - Return-to-table v1: authenticated seat shortcut, fresh membership validation,
   reconnect feedback and sit-out-safe return behavior.
+- Owner Quick Credit v1: Player ID quick credit presets, authoritative resulting
+  balance, existing audited ledger mutation, and Table Manager status filters.
 
 These increments were promoted sequentially only after same-SHA CI gates passed.
 
 ## Current reviewable increment
 
-Owner Quick Credit v1 adds a focused owner workflow on top of the existing audited
-operator balance mutation: Player ID entry, +1k / +5k / +10k test-chip presets,
-visible resulting balance, and table filters for All / Live / Open / Paused / Closed.
-The existing manual delta tool remains available. No backend/schema/ledger/role
-semantics change. See `docs/owner-quick-credit.md`.
+Network Recovery v1 extends Product Guardian around a live cash hand. It forces a
+browser offline gap while the disconnected player is the actor, verifies action
+controls are locked, advances the authoritative server state with an idempotent
+mutation carrying a request ID, reconnects, checks the client catches up to the
+next hand within budget, and proves the fold was recorded exactly once. Desktop
+and mobile Guardian projects both require the journey.
+
+No game-rule, schema, ledger, role, deployment or production semantics change.
 
 ## Next small increments
 
-1. Verify and promote Owner Quick Credit through same-SHA backend/frontend/Guardian CI.
+1. Verify and promote Network Recovery v1 through same-SHA backend/frontend/Guardian CI.
 2. Perform the real Telegram/iPhone two-player dry run and preserve its evidence.
-3. Strengthen Guardian with broader network interruption journeys and correlated
-   frontend/API/game-engine diagnostics.
+3. Add deeper frontend/API/game-engine correlation only where the dry run exposes
+   diagnostic gaps; existing request IDs, structured logs and browser traces remain
+   the starting point.
 4. Establish performance baselines after a stable closed-beta environment exists.
 5. Add richer chat or owner controls only from observed closed-beta friction.
 
