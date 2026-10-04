@@ -22,7 +22,7 @@ test("operator bootstrap exchanges for scoped session and dashboard loads", asyn
     .fill(BOOTSTRAP_KEY);
   await page.getByRole("button", { name: "Получить сессию" }).click();
 
-  await expect(page.getByText("Tables", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Table Manager" })).toBeVisible();
   const token = await page.evaluate(() =>
     localStorage.getItem("inarena_operator_token"),
   );
@@ -34,7 +34,7 @@ test("operator bootstrap exchanges for scoped session and dashboard loads", asyn
   await expect(reopened.getByText("Tables", { exact: true })).toBeVisible();
   await reopened.close();
   await page.reload();
-  await expect(page.getByText("Tables", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Table Manager" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Выйти" })).toBeVisible();
 
   await page.getByRole("button", { name: "Выйти" }).click();
@@ -146,10 +146,22 @@ test("only an authenticated operator can create a table from Dashboard", async (
   await page.getByRole("textbox", { name: "Название стола" }).fill("   ");
   await expect(createButton).toBeDisabled();
   await page.getByRole("textbox", { name: "Название стола" }).fill("Owner-created beta table");
+  await page.getByRole("spinbutton", { name: "Small blind" }).fill("25");
+  await page.getByRole("spinbutton", { name: "Big blind" }).fill("50");
+  await page.getByRole("spinbutton", { name: "Min buy-in" }).fill("1000");
+  await page.getByRole("spinbutton", { name: "Max buy-in" }).fill("5000");
   await createButton.click();
   await expect(page.locator(".operator-table-card").filter({ hasText: "Owner-created beta table" })).toHaveCount(1);
   const tables = await request.get(`${API}/api/v1/tables`);
-  expect((await tables.json()).filter((table: any) => table.name === "Owner-created beta table")).toHaveLength(1);
+  const createdTables = (await tables.json()).filter(
+    (table: any) => table.name === "Owner-created beta table",
+  );
+  expect(createdTables).toHaveLength(1);
+  expect(createdTables[0].max_seats).toBe(7);
+  expect(createdTables[0].small_blind).toBe(25);
+  expect(createdTables[0].big_blind).toBe(50);
+  expect(createdTables[0].cash_buyin_min).toBe(1000);
+  expect(createdTables[0].cash_buyin_max).toBe(5000);
   await page.getByRole("button", { name: "Выйти" }).click();
   await expect(createButton).toHaveCount(0);
 });
@@ -196,17 +208,21 @@ test("owner starts a two-player hand and duplicate start stays disabled", async 
   await page.getByPlaceholder("Bootstrap operator key").fill(BOOTSTRAP_KEY);
   await page.getByRole("button", { name: "Получить сессию" }).click();
   const card = page.locator(".operator-table-card").filter({ hasText: "Start hand test" });
-  const start = card.getByRole("button", { name: "Начать раздачу" });
-  await start.click();
-  await expect(page.getByRole("alert")).toContainText("at least two funded players");
+  await expect(
+    card.getByRole("button", { name: "Начать раздачу" }),
+  ).toHaveCount(0);
+
   for (const seat of [1, 2]) {
     const user = `start-player-${seat}`;
     expect((await request.post(`${API}/api/v1/operator/balance`, { headers, data: { user_id: user, delta: 20000 } })).ok()).toBeTruthy();
     const session = await (await request.post(`${API}/api/v1/sessions`, { data: { user_id: user, provider: "test", data: {} } })).json();
     expect((await request.post(`${API}/api/v1/tables/${table.id}/join-auth`, { headers: { "X-Session-ID": session.session_id, "Idempotency-Key": `start-join-${seat}` }, data: { seat_no: seat, stack: 10000 } })).ok()).toBeTruthy();
   }
+
+  const start = card.getByRole("button", { name: "Начать раздачу" });
+  await expect(start).toBeVisible({ timeout: 10_000 });
   await start.click();
-  await expect(start).toBeDisabled();
+  await expect(start).toHaveCount(0);
   const state = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
   expect(state.active_hand.street).toBe("preflop");
   expect(state.active_hand.pot).toBe(150);
@@ -1066,4 +1082,36 @@ test("tables enforce fixed seven-max capacity", async ({ request }) => {
   expect(state.seats).toHaveLength(1);
   expect(state.seats[0].seat_no).toBe(7);
   expect(state.seats.some((seat: any) => seat.seat_no > 7)).toBe(false);
+});
+
+
+test("table manager pauses and reopens a cash table", async ({ page, request }) => {
+  const token = await createOperatorToken(request);
+  const headers = { "X-Operator-Key": token };
+  const created = await request.post(`${API}/api/v1/operator/tables`, {
+    headers,
+    data: { name: "Manager status cash" },
+  });
+  expect(created.ok()).toBeTruthy();
+
+  await page.goto("/?operator=1");
+  await page.getByPlaceholder("Bootstrap operator key").fill(BOOTSTRAP_KEY);
+  await page.getByRole("button", { name: "Получить сессию" }).click();
+
+  const card = page.locator(".operator-table-card").filter({
+    hasText: "Manager status cash",
+  });
+  await expect(card).toBeVisible();
+
+  await card.getByRole("button", { name: "Пауза" }).click();
+  await expect(card.getByText("Пауза", { exact: true })).toBeVisible();
+
+  await card.getByRole("button", { name: "Открыть стол" }).click();
+  await expect(card.getByText("Открыт", { exact: true })).toBeVisible();
+
+  const state = await (
+    await request.get(`${API}/api/v1/tables/${(await created.json()).id}`)
+  ).json();
+  expect(state.status).toBe("open");
+  expect(state.max_seats).toBe(7);
 });
