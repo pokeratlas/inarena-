@@ -203,6 +203,27 @@ export async function refreshCurrentSession(
 }
 
 
+export async function topUpAuthenticated(
+  tableId: string,
+  sessionId: string,
+  amount: number,
+  idempotencyKey = createIdempotencyKey(),
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/tables/${tableId}/top-up-auth`,
+    {
+      method: "POST",
+      headers: mutationHeaders(sessionId, idempotencyKey, true),
+      body: JSON.stringify({ amount }),
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Unable to top up stack");
+  }
+  return response.json();
+}
+
 export async function sitOutAuthenticated(
   tableId: string,
   sessionId: string,
