@@ -568,3 +568,178 @@ test("cash player can sit out during a hand and return for the next one", async 
 
   await context.close();
 });
+
+
+test("cash player can top up immediately between hands", async ({ page, request }) => {
+  const token = await createOperatorToken(request);
+  const headers = { "X-Operator-Key": token };
+  const created = await request.post(`${API}/api/v1/operator/tables`, {
+    headers,
+    data: { name: "Immediate top-up cash" },
+  });
+  expect(created.ok()).toBeTruthy();
+  const table = await created.json();
+
+  const user = "topup-immediate-player";
+  expect((await request.post(`${API}/api/v1/operator/balance`, {
+    headers,
+    data: { user_id: user, delta: 20_000 },
+  })).ok()).toBeTruthy();
+  const session = await (await request.post(`${API}/api/v1/sessions`, {
+    data: { user_id: user, provider: "test", data: {} },
+  })).json();
+
+  expect((await request.post(`${API}/api/v1/tables/${table.id}/join-auth`, {
+    headers: {
+      "X-Session-ID": session.session_id,
+      "Idempotency-Key": "topup-immediate-join",
+    },
+    data: { seat_no: 1, stack: 5_000 },
+  })).ok()).toBeTruthy();
+
+  await page.addInitScript((id) => {
+    localStorage.setItem("inarena_session_id", id);
+  }, session.session_id);
+  await page.goto("/");
+  await page.getByRole("button", { name: "ONLINE", exact: false }).click();
+  await page
+    .locator(".lobby-card")
+    .filter({ hasText: "Immediate top-up cash" })
+    .getByRole("button", { name: "Открыть" })
+    .click();
+
+  await page.getByRole("button", { name: "Пополнить стек" }).click();
+  await expect(page.getByLabel("Пополнение стека")).toBeVisible();
+  await page.getByRole("button", { name: "+25 BB" }).click();
+  await page.getByRole("button", { name: /Добавить ·/ }).click();
+
+  await expect.poll(async () => {
+    const state = await (await request.get(
+      `${API}/api/v1/tables/${table.id}`,
+    )).json();
+    const seat = state.seats.find((item: any) => item.player_id === user);
+    return {
+      stack: seat?.stack ?? null,
+      pending: seat?.pending_top_up ?? null,
+    };
+  }).toEqual({ stack: 7_500, pending: 0 });
+
+  const balance = await (await request.get(`${API}/api/v1/me/balance`, {
+    headers: { "X-Session-ID": session.session_id },
+  })).json();
+  expect(balance.balance).toBe(17_500);
+});
+
+
+test("cash top-up requested during a hand applies only after settlement", async ({ browser, request }) => {
+  const token = await createOperatorToken(request);
+  const headers = { "X-Operator-Key": token };
+  const created = await request.post(`${API}/api/v1/operator/tables`, {
+    headers,
+    data: { name: "Queued top-up cash" },
+  });
+  expect(created.ok()).toBeTruthy();
+  const table = await created.json();
+
+  const players: Array<{ user: string; sessionId: string; seat: number }> = [];
+  for (const seat of [1, 2]) {
+    const user = `topup-queued-player-${seat}`;
+    expect((await request.post(`${API}/api/v1/operator/balance`, {
+      headers,
+      data: { user_id: user, delta: 20_000 },
+    })).ok()).toBeTruthy();
+    const session = await (await request.post(`${API}/api/v1/sessions`, {
+      data: { user_id: user, provider: "test", data: {} },
+    })).json();
+    expect((await request.post(`${API}/api/v1/tables/${table.id}/join-auth`, {
+      headers: {
+        "X-Session-ID": session.session_id,
+        "Idempotency-Key": `topup-queued-join-${seat}`,
+      },
+      data: { seat_no: seat, stack: 10_000 },
+    })).ok()).toBeTruthy();
+    players.push({ user, sessionId: session.session_id, seat });
+  }
+
+  await expect.poll(async () => {
+    const state = await (await request.get(
+      `${API}/api/v1/tables/${table.id}`,
+    )).json();
+    return state.active_hand?.action_seat ?? null;
+  }, { timeout: 10_000 }).not.toBeNull();
+
+  const active = await (await request.get(
+    `${API}/api/v1/tables/${table.id}`,
+  )).json();
+  const actor = players.find(
+    (player) => player.seat === active.active_hand.action_seat,
+  )!;
+  const beforeStack = active.seats.find(
+    (seat: any) => seat.player_id === actor.user,
+  ).stack;
+
+  const context = await browser.newContext();
+  await context.addInitScript((id) => {
+    localStorage.setItem("inarena_session_id", id);
+  }, actor.sessionId);
+  const actorPage = await context.newPage();
+  await actorPage.goto("/");
+  await actorPage.getByRole("button", { name: "ONLINE", exact: false }).click();
+  await actorPage
+    .locator(".lobby-card")
+    .filter({ hasText: "Queued top-up cash" })
+    .getByRole("button", { name: "Открыть" })
+    .click();
+
+  await actorPage.getByRole("button", { name: "Пополнить стек" }).click();
+  await actorPage.getByRole("button", { name: "+25 BB" }).click();
+  await actorPage
+    .getByRole("button", { name: /Добавить со следующей/ })
+    .click();
+
+  await expect.poll(async () => {
+    const state = await (await request.get(
+      `${API}/api/v1/tables/${table.id}`,
+    )).json();
+    const seat = state.seats.find((item: any) => item.player_id === actor.user);
+    return {
+      stack: seat?.stack ?? null,
+      pending: seat?.pending_top_up ?? null,
+    };
+  }).toEqual({ stack: beforeStack, pending: 2_500 });
+
+  await expect(
+    actorPage.getByText(/Top-up \+2,?500 применится после раздачи/),
+  ).toBeVisible();
+
+  await actorPage.getByRole("button", { name: "Sit out", exact: true }).click();
+  await expect(
+    actorPage.getByRole("button", { name: "Sit out после раздачи" }),
+  ).toBeVisible();
+  await actorPage.getByRole("button", { name: "Fold" }).click();
+
+  await expect.poll(async () => {
+    const state = await (await request.get(
+      `${API}/api/v1/tables/${table.id}`,
+    )).json();
+    const seat = state.seats.find((item: any) => item.player_id === actor.user);
+    return {
+      active: state.active_hand,
+      status: seat?.status ?? null,
+      stack: seat?.stack ?? null,
+      pending: seat?.pending_top_up ?? null,
+    };
+  }, { timeout: 10_000 }).toEqual({
+    active: null,
+    status: "sitting_out",
+    stack: beforeStack + 2_500,
+    pending: 0,
+  });
+
+  const balance = await (await request.get(`${API}/api/v1/me/balance`, {
+    headers: { "X-Session-ID": actor.sessionId },
+  })).json();
+  expect(balance.balance).toBe(17_500);
+
+  await context.close();
+});

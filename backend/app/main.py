@@ -102,6 +102,7 @@ from .service import (
     stand_with_session,
     sit_out_with_session,
     sit_in_with_session,
+    top_up_cash_with_session,
     start_hand,
     submit_player_action,
     submit_player_action_with_session,
@@ -179,6 +180,10 @@ class ReservationClaimRequest(BaseModel):
 
 class StandRequest(BaseModel):
     player_id: str = Field(min_length=1)
+
+
+class CashTopUpRequest(BaseModel):
+    amount: int = Field(gt=0)
 
 
 class StartHandRequest(BaseModel):
@@ -992,6 +997,53 @@ async def api_sit_in_authenticated(
         )
         await manager.broadcast_state(table_id, "player_sit_in")
         _schedule_next_cash_hand(state)
+        return state
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tables/{table_id}/top-up-auth")
+async def api_top_up_authenticated(
+    table_id: str,
+    payload: CashTopUpRequest,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, Any]:
+    if not x_session_id:
+        raise HTTPException(status_code=401, detail="session is required")
+    try:
+        request_payload = {
+            "table_id": table_id,
+            "amount": payload.amount,
+        }
+        replay = _idempotent_replay(
+            x_session_id,
+            "top-up-auth",
+            idempotency_key,
+            request_payload,
+        )
+        if replay is not None:
+            return replay
+        receipt_context = _mutation_receipt_context(
+            x_session_id,
+            "top-up-auth",
+            idempotency_key,
+            request_payload,
+        )
+        state = top_up_cash_with_session(
+            table_id,
+            x_session_id,
+            payload.amount,
+            receipt_context,
+        )
+        _idempotent_store(
+            x_session_id,
+            "top-up-auth",
+            idempotency_key,
+            request_payload,
+            state,
+        )
+        await manager.broadcast_state(table_id, "player_top_up")
         return state
     except Exception as exc:
         raise _http_error(exc) from exc

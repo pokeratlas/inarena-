@@ -44,6 +44,8 @@ function mergePublicSeatIdentity(
           seat.display_name ?? previousSeat?.display_name ?? null,
         photo_url:
           seat.photo_url ?? previousSeat?.photo_url ?? null,
+        pending_top_up:
+          seat.pending_top_up ?? previousSeat?.pending_top_up ?? 0,
       };
     }),
   };

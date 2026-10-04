@@ -259,13 +259,15 @@ def test_operator_can_pause_and_resume_active_table(client):
 
 
 def test_schema_migrations_reach_expected_version(client):
+    from app.db import SCHEMA_VERSION
+
     test_client, db_path = client
     assert test_client.get("/health").status_code == 200
 
     conn = sqlite3.connect(db_path)
     try:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 15
+        assert version == SCHEMA_VERSION
         tables = {
             row[0]
             for row in conn.execute(
@@ -273,6 +275,7 @@ def test_schema_migrations_reach_expected_version(client):
             ).fetchall()
         }
         assert "realtime_events" in tables
+        assert "cash_pending_topups" in tables
     finally:
         conn.close()
 

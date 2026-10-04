@@ -37,6 +37,22 @@ POSTGRES_MIGRATIONS: dict[int, list[str]] = {
         ON operator_sessions(expires_at_epoch)
         """,
     ],
+    16: [
+        """
+        CREATE TABLE IF NOT EXISTS cash_pending_topups (
+            table_id TEXT NOT NULL REFERENCES runtime_tables(id) ON DELETE CASCADE,
+            player_id TEXT NOT NULL,
+            amount INTEGER NOT NULL CHECK(amount > 0),
+            created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
+            updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
+            PRIMARY KEY (table_id, player_id)
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_cash_pending_topups_table
+        ON cash_pending_topups(table_id)
+        """,
+    ],
 }
 
 
