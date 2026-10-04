@@ -1167,6 +1167,15 @@ def _assign_waitlist_reservations_in_conn(conn, table_id: str) -> list[dict]:
         UPDATE seat_reservations
         SET status = 'expired', updated_at = CURRENT_TIMESTAMP
         WHERE table_id = ? AND status = 'active'
+          AND seat_no > ?
+        """,
+        (table_id, TABLE_MAX_SEATS),
+    )
+    conn.execute(
+        """
+        UPDATE seat_reservations
+        SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+        WHERE table_id = ? AND status = 'active'
           AND expires_at_epoch <= ?
         """,
         (table_id, now),
