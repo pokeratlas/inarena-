@@ -15,7 +15,7 @@ DESKTOP = (
 )
 REQUIRED = {
     "guardian-desktop": DESKTOP,
-    "guardian-mobile": ("join", "owner-create", "owner-live", "owner-lifecycle", "table-chat", "return", "owner-credit", "network-recovery", "table-v2"),
+    "guardian-mobile": ("join", "owner-create", "owner-live", "owner-lifecycle", "table-chat", "return", "owner-credit", "network-recovery", "table-v2", "profile"),
 }
 BUDGETS = json.loads((Path(__file__).resolve().parents[1] /
                      "frontend/e2e-fullstack/guardian-budgets.json").read_text())
