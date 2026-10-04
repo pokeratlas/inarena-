@@ -2857,58 +2857,268 @@ function OfflineHome() {
 
 function PlayerProfile({ session }: { session: AuthSession | null }) {
   const [balance, setBalance] = useState<PlayerBalance | null>(null);
+  const [hands, setHands] = useState<PlayerHandHistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session) {
+      setBalance(null);
+      setHands([]);
+      return;
+    }
     let active = true;
     setLoading(true);
-    setBalance(null);
     setError(null);
-    getMyBalance(session.session_id)
-      .then((value) => { if (active) setBalance(value); })
-      .catch(() => { if (active) setError("Не удалось загрузить баланс"); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    Promise.all([
+      getMyBalance(session.session_id),
+      getMyHandHistory(session.session_id, 50),
+    ])
+      .then(([nextBalance, nextHands]) => {
+        if (!active) return;
+        setBalance(nextBalance);
+        setHands(nextHands);
+      })
+      .catch(() => {
+        if (active) setError("Не удалось обновить данные профиля");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [session, reloadKey]);
 
   const user = session?.data.telegram_user;
-  const telegramUser = user && typeof user === "object" ? user as Record<string, unknown> : {};
-  const name = [telegramUser.first_name, telegramUser.last_name]
-    .filter((value): value is string => typeof value === "string" && Boolean(value))
-    .join(" ") || (typeof telegramUser.username === "string" ? telegramUser.username : "Игрок");
+  const telegramUser =
+    user && typeof user === "object"
+      ? user as Record<string, unknown>
+      : {};
+  const firstName =
+    typeof telegramUser.first_name === "string"
+      ? telegramUser.first_name
+      : "";
+  const lastName =
+    typeof telegramUser.last_name === "string"
+      ? telegramUser.last_name
+      : "";
+  const username =
+    typeof telegramUser.username === "string"
+      ? telegramUser.username
+      : "";
+  const photoUrl =
+    typeof telegramUser.photo_url === "string"
+      ? telegramUser.photo_url
+      : "";
+  const name =
+    [firstName, lastName].filter(Boolean).join(" ") ||
+    username ||
+    "Игрок INARENA";
+  const initials =
+    [firstName, lastName]
+      .filter(Boolean)
+      .map((part) => part[0]?.toUpperCase())
+      .join("")
+      .slice(0, 2) ||
+    name.slice(0, 1).toUpperCase();
+
+  const paidHands = hands.filter((hand) => hand.payout > 0).length;
+  const maxPot = hands.reduce((max, hand) => Math.max(max, hand.pot), 0);
+  const totalPayout = hands.reduce((sum, hand) => sum + hand.payout, 0);
+  const latestHand = hands[0] ?? null;
+
+  const renderMiniCards = (cards: string[]) =>
+    cards.map((card) => {
+      const rank = card.slice(0, -1);
+      const suitCode = card.slice(-1);
+      const suitMap: Record<string, string> = {
+        c: "♣",
+        d: "♦",
+        h: "♥",
+        s: "♠",
+      };
+      const red = suitCode === "d" || suitCode === "h";
+      return (
+        <span
+          className={red ? "profile-mini-card card-red" : "profile-mini-card card-black"}
+          key={card}
+          aria-label={card}
+        >
+          {rank}{suitMap[suitCode] ?? suitCode}
+        </span>
+      );
+    });
+
+  if (!session) {
+    return (
+      <main className="app-main profile-v2">
+        <header className="app-header">
+          <p>INARENA PLAYER</p>
+          <h1>Профиль</h1>
+        </header>
+        <p className="state-card">
+          Откройте приложение внутри Telegram и дождитесь входа, чтобы увидеть профиль.
+        </p>
+      </main>
+    );
+  }
 
   return (
-    <main className="app-main">
-      <header className="app-header"><div><p>INARENA</p><h1>Профиль</h1></div></header>
-      {session ? (
-        <section className="state-card player-profile">
+    <main className="app-main profile-v2">
+      <header className="app-header profile-v2-header">
+        <div>
+          <p>INARENA PLAYER</p>
+          <h1>Профиль</h1>
+        </div>
+        <button
+          className="profile-refresh"
+          type="button"
+          disabled={loading}
+          aria-label="Обновить баланс"
+          onClick={() => setReloadKey((value) => value + 1)}
+        >
+          ↻
+        </button>
+      </header>
+
+      <section className="profile-hero" aria-label="Карточка игрока">
+        {photoUrl ? (
+          <img
+            className="profile-avatar"
+            src={photoUrl}
+            alt=""
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <span className="profile-avatar profile-avatar-fallback">{initials}</span>
+        )}
+        <div className="profile-identity-copy">
+          <span className="profile-overline">PLAYER</span>
           <h2>{name}</h2>
-          <p>ID игрока: <strong>{session.user_id}</strong></p>
-          <p>Этот ID используется владельцем клуба для начисления фишек.</p>
-          <button className="action-button" type="button" onClick={async () => {
+          <p>{username ? "@" + username : "Telegram player"}</p>
+        </div>
+        <span className="profile-status-pill">ACTIVE</span>
+      </section>
+
+      <section className="profile-balance-card" aria-label="Баланс игрока">
+        <div>
+          <span>Доступно</span>
+          <strong>{balance ? balance.balance + " chips" : "—"}</strong>
+        </div>
+        <span className="profile-balance-mark">IN</span>
+      </section>
+
+      <section className="profile-stats" aria-label="Статистика игрока">
+        <article>
+          <strong>{hands.length}</strong>
+          <span>рук в истории</span>
+        </article>
+        <article>
+          <strong>{paidHands}</strong>
+          <span>с выплатой</span>
+        </article>
+        <article>
+          <strong>{maxPot.toLocaleString()}</strong>
+          <span>макс. банк</span>
+        </article>
+        <article>
+          <strong>{totalPayout.toLocaleString()}</strong>
+          <span>выплаты</span>
+        </article>
+      </section>
+
+      <section className="profile-id-card" aria-label="Player ID">
+        <div>
+          <span>PLAYER ID</span>
+          <strong>{session.user_id}</strong>
+          <small>Используется клубом для начисления внутренних chips.</small>
+        </div>
+        <button
+          className="action-button"
+          type="button"
+          onClick={async () => {
             try {
               await navigator.clipboard.writeText(session.user_id);
               setCopyStatus("ID скопирован");
             } catch {
-              setCopyStatus("Не удалось скопировать ID. Выделите его и скопируйте вручную.");
+              setCopyStatus(
+                "Не удалось скопировать ID. Выделите его и скопируйте вручную.",
+              );
             }
-          }}>
-            Скопировать ID
-          </button>
-          {copyStatus ? <p role="status">{copyStatus}</p> : null}
-          {loading ? <p role="status">Загружаем баланс…</p> : null}
-          {error ? <p role="alert">{error}</p> : null}
-          {balance ? <p>Баланс: <strong>{balance.balance} chips</strong></p> : null}
-          <button className="action-button action-primary" type="button" disabled={loading}
-            onClick={() => setReloadKey((value) => value + 1)}>
-            Обновить баланс
-          </button>
-        </section>
-      ) : <p className="state-card">Откройте приложение внутри Telegram и дождитесь входа, чтобы увидеть профиль.</p>}
+          }}
+        >
+          Скопировать ID
+        </button>
+      </section>
+      {copyStatus ? <p className="profile-inline-status" role="status">{copyStatus}</p> : null}
+
+      <section className="profile-section" aria-label="Последняя активность">
+        <div className="profile-section-title">
+          <div>
+            <span>ИГРА</span>
+            <h3>Последняя активность</h3>
+          </div>
+          {latestHand ? <small>{hands.length} записей</small> : null}
+        </div>
+
+        {loading && !latestHand ? (
+          <div className="profile-history-empty" role="status">
+            Загружаем игровую историю…
+          </div>
+        ) : latestHand ? (
+          <div className="profile-history-list">
+            {hands.slice(0, 5).map((hand) => (
+              <article className="profile-hand-row" key={hand.hand_id}>
+                <div className="profile-hand-cards">
+                  {renderMiniCards(hand.hole_cards)}
+                </div>
+                <div className="profile-hand-copy">
+                  <strong>
+                    {hand.payout > 0
+                      ? "+" + hand.payout.toLocaleString() + " chips"
+                      : "Без выплаты"}
+                  </strong>
+                  <span>
+                    Pot {hand.pot.toLocaleString()} · Stack {hand.final_stack.toLocaleString()}
+                  </span>
+                </div>
+                <time>
+                  {new Date(hand.completed_at).toLocaleDateString("ru-RU", {
+                    day: "2-digit",
+                    month: "2-digit",
+                  })}
+                </time>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="profile-history-empty">
+            История появится после первой завершённой раздачи.
+          </div>
+        )}
+      </section>
+
+      <section className="profile-section profile-account" aria-label="Аккаунт">
+        <div className="profile-section-title">
+          <div>
+            <span>ACCOUNT</span>
+            <h3>Аккаунт</h3>
+          </div>
+        </div>
+        <div className="profile-account-row">
+          <span>Авторизация</span>
+          <strong>{session.provider === "telegram" ? "Telegram" : session.provider}</strong>
+        </div>
+        <div className="profile-account-row">
+          <span>Статус сессии</span>
+          <strong>Активна</strong>
+        </div>
+      </section>
+
+      {error ? <p className="state-card state-error" role="alert">{error}</p> : null}
     </main>
   );
 }
