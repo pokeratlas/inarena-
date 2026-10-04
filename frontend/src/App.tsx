@@ -947,7 +947,7 @@ function OnlineTable({
       >
         <div className="felt-table felt-table-v2">
           <div className="table-brand">INARENA</div>
-          <div className="pot-display pot-display-v2">
+          <div className="pot-display pot-display-v2" key={"pot-" + potChips}>
             <small>ОБЩИЙ БАНК</small>
             <strong>{formatBb(potChips)}</strong>
             <span>{potChips.toLocaleString()} chips</span>
