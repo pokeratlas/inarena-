@@ -2451,3 +2451,588 @@ body,
     padding-bottom: 2px;
   }
 }
+
+
+/* INARENA Table V2 foundation — structure inspired by fast mobile poker UX,
+   rendered with INARENA's own visual language. */
+.table-screen-v2 {
+  gap: 10px;
+  padding-bottom: max(18px, env(safe-area-inset-bottom));
+}
+
+.table-screen-v2 .table-header-redesign {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 6px 0 8px;
+  background: linear-gradient(180deg, rgba(5, 13, 29, .98), rgba(5, 13, 29, .78), transparent);
+  backdrop-filter: blur(14px);
+}
+
+.table-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.table-icon-button {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(135, 161, 255, .22);
+  background:
+    linear-gradient(180deg, rgba(43, 67, 130, .55), rgba(15, 27, 58, .74));
+  color: #dce6ff;
+  font-size: 13px;
+  font-weight: 900;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+}
+
+.table-info-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px;
+  border-radius: 14px;
+  background: rgba(12, 24, 50, .72);
+  border: 1px solid rgba(255,255,255,.07);
+}
+
+.table-info-strip span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  color: #7f93b9;
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  text-align: center;
+}
+
+.table-info-strip strong {
+  color: #dbe6ff;
+  font-size: 10px;
+}
+
+.game-stage-v2 {
+  min-height: 555px;
+  height: min(66vh, 590px);
+  max-height: 610px;
+  display: block;
+  position: relative;
+  padding: 0;
+  isolation: isolate;
+}
+
+.felt-table-v2 {
+  position: absolute;
+  inset: 66px 22px 58px;
+  min-height: 0;
+  margin: 0;
+  border-radius: 46% / 35%;
+  border: 7px solid rgba(19, 34, 70, .98);
+  outline: 2px solid rgba(82, 116, 255, .42);
+  background:
+    radial-gradient(circle at 50% 36%, rgba(58, 100, 205, .20), transparent 28%),
+    radial-gradient(circle at 50% 58%, #17325e 0%, #10284e 52%, #091a36 100%);
+  box-shadow:
+    0 0 0 1px rgba(131, 157, 255, .08),
+    0 0 28px rgba(48, 86, 255, .13),
+    inset 0 -32px 74px rgba(0,0,0,.26),
+    0 26px 56px rgba(0,0,0,.34);
+  overflow: hidden;
+}
+
+.felt-table-v2::after {
+  content: "";
+  position: absolute;
+  inset: 18px;
+  border-radius: inherit;
+  border: 1px solid rgba(133, 160, 245, .10);
+  pointer-events: none;
+}
+
+.table-screen-v2 .table-brand {
+  top: 55%;
+  transform: translateY(-50%);
+  color: rgba(198, 213, 255, .055);
+  font-size: clamp(25px, 7.5vw, 34px);
+  letter-spacing: .20em;
+}
+
+.pot-display-v2 {
+  min-width: 118px;
+  padding: 8px 15px 7px;
+  background: rgba(4, 10, 24, .67);
+  border-color: rgba(161, 181, 255, .13);
+}
+
+.pot-display-v2 small {
+  font-size: 7px;
+  color: #8296bb;
+}
+
+.pot-display-v2 strong {
+  font-size: 20px;
+  line-height: 1.05;
+  color: #f4f7ff;
+}
+
+.pot-display-v2 span {
+  color: #7f94b8;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.table-screen-v2 .board-cards-redesign {
+  margin-top: 15px;
+  gap: 4px;
+}
+
+.table-screen-v2 .board-cards-redesign .playing-card,
+.table-screen-v2 .board-cards-redesign .card-slot {
+  width: clamp(36px, 10.8vw, 45px);
+  min-width: clamp(36px, 10.8vw, 45px);
+  height: clamp(51px, 15.2vw, 63px);
+}
+
+.table-screen-v2 .street-label {
+  margin-top: 9px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(4, 10, 23, .35);
+  color: #8ea3c8;
+  font-size: 8px;
+}
+
+.opponent-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.opponent-seat {
+  position: absolute;
+  width: 116px;
+  padding: 7px 8px;
+  border-radius: 13px;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  background:
+    linear-gradient(180deg, rgba(15, 27, 56, .97), rgba(6, 14, 30, .97));
+  border: 1px solid rgba(255,255,255,.09);
+}
+
+.opponent-seat .player-pod-top {
+  gap: 6px;
+}
+
+.opponent-seat .player-avatar {
+  width: 28px;
+  height: 28px;
+}
+
+.player-stack-block {
+  min-width: 0;
+  flex: 1;
+}
+
+.player-stack-block strong,
+.hero-identity strong {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player-stack-block strong {
+  font-size: 9px;
+}
+
+.player-stack-block b {
+  display: block;
+  margin-top: 1px;
+  color: #dce8ff;
+  font-size: 11px;
+}
+
+.player-stack-block small {
+  margin-top: 0;
+  color: #7085ab;
+  font-size: 7px;
+}
+
+.opponent-seat .seat-badges {
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  transform: translateX(-50%);
+  margin: 0;
+}
+
+.opponent-seat .seat-badges span {
+  min-width: 20px;
+  height: 18px;
+  padding: 0 4px;
+  font-size: 7px;
+}
+
+/* Seat distribution around the table. One opponent = heads-up top seat. */
+.opponent-layer[data-count="1"] .opponent-seat-0 {
+  left: 50%;
+  top: 7%;
+}
+
+/* 3-max */
+.opponent-layer[data-count="2"] .opponent-seat-0 {
+  left: 24%;
+  top: 9%;
+}
+.opponent-layer[data-count="2"] .opponent-seat-1 {
+  left: 76%;
+  top: 9%;
+}
+
+/* 4-max */
+.opponent-layer[data-count="3"] .opponent-seat-0 {
+  left: 10%;
+  top: 34%;
+}
+.opponent-layer[data-count="3"] .opponent-seat-1 {
+  left: 50%;
+  top: 7%;
+}
+.opponent-layer[data-count="3"] .opponent-seat-2 {
+  left: 90%;
+  top: 34%;
+}
+
+/* 5-max */
+.opponent-layer[data-count="4"] .opponent-seat-0 {
+  left: 9%;
+  top: 29%;
+}
+.opponent-layer[data-count="4"] .opponent-seat-1 {
+  left: 17%;
+  top: 65%;
+}
+.opponent-layer[data-count="4"] .opponent-seat-2 {
+  left: 83%;
+  top: 65%;
+}
+.opponent-layer[data-count="4"] .opponent-seat-3 {
+  left: 91%;
+  top: 29%;
+}
+
+/* 6-max */
+.opponent-layer[data-count="5"] .opponent-seat-0 {
+  left: 16%;
+  top: 58%;
+}
+.opponent-layer[data-count="5"] .opponent-seat-1 {
+  left: 18%;
+  top: 24%;
+}
+.opponent-layer[data-count="5"] .opponent-seat-2 {
+  left: 50%;
+  top: 7%;
+}
+.opponent-layer[data-count="5"] .opponent-seat-3 {
+  left: 82%;
+  top: 24%;
+}
+.opponent-layer[data-count="5"] .opponent-seat-4 {
+  left: 84%;
+  top: 58%;
+}
+
+/* Fixed INARENA 7-max: hero bottom + six opponents around the remaining arc. */
+.opponent-layer[data-count="6"] .opponent-seat-0 {
+  left: 16%;
+  top: 62%;
+}
+.opponent-layer[data-count="6"] .opponent-seat-1 {
+  left: 17%;
+  top: 27%;
+}
+.opponent-layer[data-count="6"] .opponent-seat-2 {
+  left: 36%;
+  top: 7%;
+}
+.opponent-layer[data-count="6"] .opponent-seat-3 {
+  left: 64%;
+  top: 7%;
+}
+.opponent-layer[data-count="6"] .opponent-seat-4 {
+  left: 83%;
+  top: 27%;
+}
+.opponent-layer[data-count="6"] .opponent-seat-5 {
+  left: 84%;
+  top: 62%;
+}
+
+.table-screen-v2 .player-pod.is-acting {
+  border-color: rgba(88, 127, 255, .96);
+  box-shadow:
+    0 0 0 2px rgba(72, 112, 255, .19),
+    0 0 23px rgba(50, 91, 255, .33);
+}
+
+.table-screen-v2 .hero-player-pod {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  z-index: 8;
+  width: min(82%, 326px);
+  max-width: none;
+  min-height: 86px;
+  margin: 0;
+  padding: 9px 11px 10px;
+  border-radius: 17px;
+  gap: 10px;
+  background:
+    linear-gradient(180deg, rgba(22, 38, 76, .98), rgba(7, 16, 34, .98));
+  box-shadow:
+    0 15px 34px rgba(0,0,0,.38),
+    inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.table-screen-v2 .hero-player-info {
+  min-width: 0;
+  flex: 1;
+  gap: 7px;
+}
+
+.hero-avatar {
+  width: 36px;
+  height: 36px;
+}
+
+.hero-identity {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 0;
+}
+
+.hero-identity .hero-label {
+  margin: 0 0 1px;
+  font-size: 7px;
+}
+
+.hero-identity strong {
+  font-size: 10px;
+}
+
+.hero-identity b {
+  color: #e3ebff;
+  font-size: 13px;
+  line-height: 1.15;
+}
+
+.hero-identity small {
+  color: #7589ad;
+  font-size: 7px;
+}
+
+.table-screen-v2 .hero-player-info .seat-badges {
+  margin: 0 0 0 auto;
+  align-self: flex-start;
+}
+
+.table-screen-v2 .hole-cards-redesign {
+  flex: 0 0 auto;
+  min-height: 70px;
+}
+
+.table-screen-v2 .hole-cards-redesign .playing-card,
+.table-screen-v2 .hole-cards-redesign .card-back {
+  width: 49px;
+  min-width: 49px;
+  height: 68px;
+  border-radius: 9px;
+}
+
+.table-screen-v2 .hole-cards-redesign .playing-card:first-child,
+.table-screen-v2 .hole-cards-redesign .card-back:first-child {
+  margin-right: -8px;
+  transform: rotate(-5deg) translateY(2px);
+}
+
+.table-screen-v2 .hole-cards-redesign .playing-card:last-child,
+.table-screen-v2 .hole-cards-redesign .card-back:last-child {
+  transform: rotate(4deg) translateY(1px);
+}
+
+.table-screen-v2 .game-message {
+  margin-top: -2px;
+  min-height: 28px;
+  color: #90a4c8;
+  font-size: 10px;
+  letter-spacing: .02em;
+}
+
+.table-screen-v2 .player-actions {
+  position: relative;
+  z-index: 12;
+  padding: 10px;
+  border-radius: 18px;
+  gap: 7px;
+  background:
+    linear-gradient(180deg, rgba(16, 29, 59, .94), rgba(7, 16, 34, .96));
+  border: 1px solid rgba(255,255,255,.08);
+  box-shadow: 0 18px 44px rgba(0,0,0,.28);
+}
+
+.table-screen-v2 .primary-action-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  gap: 7px;
+}
+
+.table-screen-v2 .primary-action-row .action-button {
+  min-height: 52px;
+  font-size: 13px;
+}
+
+.table-screen-v2 .action-danger {
+  background: rgba(211, 65, 85, .11);
+  border-color: rgba(226, 75, 94, .20);
+  color: #ffb5c0;
+}
+
+.table-screen-v2 .action-call {
+  background: rgba(42, 93, 216, .13);
+  border-color: rgba(74, 116, 255, .24);
+}
+
+.table-screen-v2 .action-raise {
+  grid-column: 1 / -1;
+  min-height: 52px;
+  background:
+    linear-gradient(180deg, rgba(73, 112, 255, .98), rgba(48, 79, 213, .98));
+  box-shadow: 0 9px 20px rgba(42, 78, 218, .25);
+}
+
+.table-screen-v2 .bet-presets {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.table-screen-v2 .preset-button {
+  min-height: 34px;
+  border-radius: 10px;
+  padding: 0 3px;
+  font-size: 9px;
+}
+
+.table-screen-v2 .bet-slider {
+  grid-column: 1 / -1;
+}
+
+.table-screen-v2 #table-controls {
+  opacity: .92;
+}
+
+.table-screen-v2 .policy-actions {
+  gap: 7px;
+}
+
+.table-screen-v2 .policy-actions .action-button {
+  min-height: 38px;
+  min-width: 0;
+  border-radius: 12px;
+  background: rgba(255,255,255,.035);
+  font-size: 10px;
+}
+
+.table-screen-v2 #table-chat-dock {
+  position: relative;
+  z-index: 13;
+}
+
+.table-screen-v2 .table-chat > button {
+  min-height: 42px;
+  width: 100%;
+  border-radius: 13px;
+  border: 1px solid rgba(88, 126, 255, .17);
+  background: rgba(53, 88, 190, .09);
+  color: #b9c9eb;
+  font-weight: 800;
+}
+
+.table-screen-v2 .history-panel-compact {
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+@media (max-width: 390px) {
+  .game-stage-v2 {
+    min-height: 520px;
+    height: 61vh;
+  }
+
+  .felt-table-v2 {
+    inset: 62px 14px 60px;
+    border-width: 6px;
+  }
+
+  .opponent-seat {
+    width: 104px;
+    padding: 6px 7px;
+  }
+
+  .opponent-seat .player-avatar {
+    width: 25px;
+    height: 25px;
+  }
+
+  .player-stack-block strong {
+    font-size: 8px;
+  }
+
+  .player-stack-block b {
+    font-size: 10px;
+  }
+
+  .table-screen-v2 .hero-player-pod {
+    width: 86%;
+  }
+
+  .table-info-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 360px) {
+  .game-stage-v2 {
+    min-height: 500px;
+    height: 60vh;
+  }
+
+  .opponent-seat {
+    width: 96px;
+  }
+
+  .table-screen-v2 .hero-player-pod {
+    width: 90%;
+  }
+
+  .table-screen-v2 .hole-cards-redesign .playing-card,
+  .table-screen-v2 .hole-cards-redesign .card-back {
+    width: 45px;
+    min-width: 45px;
+    height: 63px;
+  }
+
+  .table-screen-v2 .bet-presets {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}

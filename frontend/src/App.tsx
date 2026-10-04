@@ -772,6 +772,7 @@ function OnlineTable({
   const [history, setHistory] = useState<HandHistoryEntry[]>([]);
   const [historyActions, setHistoryActions] = useState<HandActionEntry[]>([]);
   const [myHistory, setMyHistory] = useState<PlayerHandHistoryEntry[]>([]);
+  const [infoOpen, setInfoOpen] = useState(false);
   const handId = table.active_hand?.hand_id ?? null;
 
   useEffect(() => {
@@ -842,8 +843,17 @@ function OnlineTable({
   const bigBlindSeat = Number(table.active_hand?.state.big_blind_seat ?? 0);
   const heroSeat =
     table.seats.find((seat) => seat.player_id === playerId) ?? null;
-  const opponents = table.seats.filter((seat) => seat.player_id !== playerId);
+  const opponents = table.seats
+    .filter((seat) => seat.player_id !== playerId)
+    .slice()
+    .sort((left, right) => left.seat_no - right.seat_no);
   const actionSeat = table.active_hand?.action_seat ?? null;
+  const potChips = table.active_hand?.pot ?? 0;
+  const formatBb = (chips: number) => {
+    const blinds = table.big_blind > 0 ? chips / table.big_blind : 0;
+    const rounded = Number.isInteger(blinds) ? String(blinds) : blinds.toFixed(1);
+    return rounded + " BB";
+  };
 
   const seatBadges = (seatNo: number) => (
     <div className="seat-badges">
@@ -883,7 +893,7 @@ function OnlineTable({
     });
 
   return (
-    <section className="table-screen table-screen-redesign" aria-label="Игровой стол">
+    <section className="table-screen table-screen-redesign table-screen-v2" aria-label="Игровой стол">
       <header className="table-header table-header-redesign">
         <button className="table-back" type="button" onClick={onBack}>
           ← Лобби
@@ -895,14 +905,34 @@ function OnlineTable({
             {table.small_blind}/{table.big_blind}
           </span>
         </div>
-        <span
-          className={connected ? "live-pill" : "live-pill reconnecting"}
-          aria-label={connected ? "Соединение активно" : "Переподключение"}
-        >
-          <i />
-          {connected ? "LIVE" : "RECONNECT"}
-        </span>
+        <div className="table-header-actions">
+          <button
+            className="table-icon-button"
+            type="button"
+            aria-label="Информация о столе"
+            aria-expanded={infoOpen}
+            onClick={() => setInfoOpen((value) => !value)}
+          >
+            i
+          </button>
+          <span
+            className={connected ? "live-pill" : "live-pill reconnecting"}
+            aria-label={connected ? "Соединение активно" : "Переподключение"}
+          >
+            <i />
+            {connected ? "LIVE" : "RECONNECT"}
+          </span>
+        </div>
       </header>
+
+      {infoOpen ? (
+        <section className="table-info-strip" aria-label="Информация о столе">
+          <span><strong>{table.max_seats}-MAX</strong> формат</span>
+          <span><strong>{table.small_blind}/{table.big_blind}</strong> blinds</span>
+          <span><strong>{table.seats.length}/{table.max_seats}</strong> игроков</span>
+          <span><strong>{table.status.toUpperCase()}</strong> статус</span>
+        </section>
+      ) : null}
 
       {!connected && (
         <p className="table-connection-state" role="status">
@@ -910,45 +940,17 @@ function OnlineTable({
         </p>
       )}
 
-      <section className="game-stage">
-        <div className="opponent-row">
-          {opponents.map((seat) => (
-            <article
-              className={
-                seat.seat_no === actionSeat
-                  ? "player-pod opponent-pod is-acting"
-                  : "player-pod opponent-pod"
-              }
-              key={seat.seat_no}
-            >
-              <div className="player-pod-top">
-                {seat.photo_url ? (
-                  <img
-                    className="player-avatar player-avatar-photo"
-                    src={seat.photo_url}
-                    alt=""
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <span className="player-avatar">
-                    {(seat.display_name?.trim()?.[0] ?? "P").toUpperCase()}
-                  </span>
-                )}
-                <div>
-                  <strong>{seat.display_name ?? "Игрок " + seat.seat_no}</strong>
-                  <small>{seat.stack.toLocaleString()} chips</small>
-                </div>
-              </div>
-              {seatBadges(seat.seat_no)}
-            </article>
-          ))}
-        </div>
-
-        <div className="felt-table">
+      <section
+        className="game-stage game-stage-v2"
+        data-opponents={opponents.length}
+        aria-label="Стол INARENA"
+      >
+        <div className="felt-table felt-table-v2">
           <div className="table-brand">INARENA</div>
-          <div className="pot-display">
-            <small>POT</small>
-            <strong>{table.active_hand?.pot ?? 0}</strong>
+          <div className="pot-display pot-display-v2">
+            <small>ОБЩИЙ БАНК</small>
+            <strong>{formatBb(potChips)}</strong>
+            <span>{potChips.toLocaleString()} chips</span>
           </div>
 
           <div className="board-cards board-cards-redesign" aria-label="Общие карты">
@@ -970,18 +972,70 @@ function OnlineTable({
           </div>
         </div>
 
+        <div className="opponent-layer" data-count={opponents.length}>
+          {opponents.map((seat, index) => (
+            <article
+              className={[
+                "player-pod",
+                "opponent-pod",
+                "opponent-seat",
+                "opponent-seat-" + index,
+                seat.seat_no === actionSeat ? "is-acting" : "",
+              ].filter(Boolean).join(" ")}
+              key={seat.seat_no}
+              aria-label={"Игрок " + (seat.display_name ?? seat.seat_no)}
+            >
+              <div className="player-pod-top">
+                {seat.photo_url ? (
+                  <img
+                    className="player-avatar player-avatar-photo"
+                    src={seat.photo_url}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <span className="player-avatar">
+                    {(seat.display_name?.trim()?.[0] ?? "P").toUpperCase()}
+                  </span>
+                )}
+                <div className="player-stack-block">
+                  <strong>{seat.display_name ?? "Игрок " + seat.seat_no}</strong>
+                  <b>{formatBb(seat.stack)}</b>
+                  <small>{seat.stack.toLocaleString()} chips</small>
+                </div>
+              </div>
+              {seatBadges(seat.seat_no)}
+            </article>
+          ))}
+        </div>
+
         {heroSeat ? (
           <article
-            className={
-              heroSeat.seat_no === actionSeat
-                ? "player-pod hero-player-pod is-acting"
-                : "player-pod hero-player-pod"
-            }
+            className={[
+              "player-pod",
+              "hero-player-pod",
+              heroSeat.seat_no === actionSeat ? "is-acting" : "",
+            ].filter(Boolean).join(" ")}
+            aria-label="Ваше место"
           >
             <div className="hero-player-info">
-              <div>
+              {heroSeat.photo_url ? (
+                <img
+                  className="player-avatar player-avatar-photo hero-avatar"
+                  src={heroSeat.photo_url}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <span className="player-avatar hero-avatar">
+                  {(heroSeat.display_name?.trim()?.[0] ?? "Я").toUpperCase()}
+                </span>
+              )}
+              <div className="hero-identity">
                 <span className="hero-label">ВЫ</span>
-                <strong>{heroSeat.stack.toLocaleString()} chips</strong>
+                <strong>{heroSeat.display_name ?? "Игрок"}</strong>
+                <b>{formatBb(heroSeat.stack)}</b>
+                <small>{heroSeat.stack.toLocaleString()} chips</small>
               </div>
               {seatBadges(heroSeat.seat_no)}
             </div>
@@ -1015,6 +1069,7 @@ function OnlineTable({
         connected={connected}
       />
 
+      <div id="table-controls">
       <TablePolicyControls
         table={table}
         playerId={playerId}
@@ -1025,12 +1080,15 @@ function OnlineTable({
         }}
         onLeave={onBack}
       />
+      </div>
 
       {sessionId && playerId && table.seats.some((seat) => seat.player_id === playerId) && (
-        <TableChat key={table.id + sessionId} tableId={table.id} sessionId={sessionId} playerId={playerId} />
+        <div id="table-chat-dock">
+          <TableChat key={table.id + sessionId} tableId={table.id} sessionId={sessionId} playerId={playerId} />
+        </div>
       )}
 
-      <details className="history-panel history-panel-compact">
+      <details id="table-history" className="history-panel history-panel-compact">
         <summary>История последней раздачи</summary>
         {history[0] ? (
           <>
