@@ -36,6 +36,7 @@ import {
   submitPlayerAction,
   tournamentAddon,
   tournamentRebuy,
+  topUpAuthenticated,
   unregisterTournament,
 } from "./api";
 import type { AppMode, CashWaitlistStatus, HandActionEntry, HandHistoryEntry, OperatorAuditEntry, OperatorDashboard, PlayerBalance, PlayerHandHistoryEntry, TableState, TournamentRegistration } from "./types";
@@ -400,6 +401,9 @@ function TablePolicyControls({
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [leaveAfterHand, setLeaveAfterHand] = useState(false);
+  const [topUpOpen, setTopUpOpen] = useState(false);
+  const [topUpAmount, setTopUpAmount] = useState(0);
+  const [topUpBalance, setTopUpBalance] = useState<number | null>(null);
   const seat = table.seats.find((item) => item.player_id === playerId) ?? null;
 
   useEffect(() => {
@@ -460,6 +464,60 @@ function TablePolicyControls({
     }
   };
 
+  const topUpRoom = seat
+    ? Math.max(
+        0,
+        table.cash_buyin_max -
+          seat.stack -
+          Number(seat.pending_top_up ?? 0),
+      )
+    : 0;
+  const topUpAvailable = Math.min(
+    topUpRoom,
+    Math.max(0, topUpBalance ?? 0),
+  );
+
+  const openTopUp = async () => {
+    if (!seat || !sessionId) return;
+    setPending(true);
+    setError(null);
+    try {
+      const nextBalance = await getMyBalance(sessionId);
+      const available = Math.min(
+        topUpRoom,
+        Math.max(0, nextBalance.balance),
+      );
+      setTopUpBalance(nextBalance.balance);
+      setTopUpAmount(
+        available > 0
+          ? Math.min(available, Math.max(table.big_blind * 25, 1))
+          : 0,
+      );
+      setTopUpOpen(true);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Не удалось загрузить баланс",
+      );
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const submitTopUp = async () => {
+    if (!seat || !sessionId || topUpAmount <= 0) return;
+    await run(async () => {
+      const state = await topUpAuthenticated(
+        table.id,
+        sessionId,
+        topUpAmount,
+      );
+      const nextBalance = await getMyBalance(sessionId);
+      setTopUpBalance(nextBalance.balance);
+      setTopUpOpen(false);
+      return state;
+    });
+  };
+
   return (
     <section className="policy-actions" aria-label="Управление участием">
       {table.table_mode === "tournament" ? (
@@ -499,6 +557,119 @@ function TablePolicyControls({
         )
       ) : (
         <>
+          <button
+            className="action-button"
+            disabled={pending || topUpRoom <= 0}
+            type="button"
+            onClick={() => void openTopUp()}
+          >
+            {topUpRoom <= 0 ? "Стек на максимуме" : "Пополнить стек"}
+          </button>
+
+          {seat.pending_top_up > 0 ? (
+            <p className="action-state topup-pending" role="status">
+              Top-up +{seat.pending_top_up.toLocaleString()} применится после раздачи.
+            </p>
+          ) : null}
+
+          {topUpOpen ? (
+            <section className="topup-panel" aria-label="Пополнение стека">
+              <div className="topup-head">
+                <div>
+                  <span>TOP-UP</span>
+                  <strong>+{topUpAmount.toLocaleString()} chips</strong>
+                </div>
+                <small>
+                  Баланс {(topUpBalance ?? 0).toLocaleString()}
+                </small>
+              </div>
+
+              <div className="topup-copy">
+                <span>
+                  Стек {seat.stack.toLocaleString()}
+                  {seat.pending_top_up > 0
+                    ? " + " + seat.pending_top_up.toLocaleString() + " pending"
+                    : ""}
+                </span>
+                <span>Max {table.cash_buyin_max.toLocaleString()}</span>
+              </div>
+
+              <div className="topup-presets">
+                <button
+                  type="button"
+                  disabled={topUpAvailable <= 0}
+                  onClick={() =>
+                    setTopUpAmount(
+                      Math.min(topUpAvailable, table.big_blind * 25),
+                    )
+                  }
+                >
+                  +25 BB
+                </button>
+                <button
+                  type="button"
+                  disabled={topUpAvailable <= 0}
+                  onClick={() =>
+                    setTopUpAmount(
+                      Math.min(topUpAvailable, table.big_blind * 50),
+                    )
+                  }
+                >
+                  +50 BB
+                </button>
+                <button
+                  type="button"
+                  disabled={topUpAvailable <= 0}
+                  onClick={() => setTopUpAmount(topUpAvailable)}
+                >
+                  До Max
+                </button>
+              </div>
+
+              <input
+                aria-label="Top-up amount"
+                type="range"
+                min={topUpAvailable > 0 ? 1 : 0}
+                max={Math.max(1, topUpAvailable)}
+                step={1}
+                value={Math.min(
+                  Math.max(topUpAmount, topUpAvailable > 0 ? 1 : 0),
+                  Math.max(1, topUpAvailable),
+                )}
+                disabled={pending || topUpAvailable <= 0}
+                onChange={(event) =>
+                  setTopUpAmount(Number(event.target.value))
+                }
+              />
+
+              <div className="topup-actions">
+                <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={pending}
+                  onClick={() => setTopUpOpen(false)}
+                >
+                  Отмена
+                </button>
+                <button
+                  className="action-button action-primary"
+                  type="button"
+                  disabled={
+                    pending ||
+                    topUpAmount <= 0 ||
+                    topUpAmount > topUpAvailable
+                  }
+                  onClick={() => void submitTopUp()}
+                >
+                  {table.active_hand
+                    ? "Добавить со следующей · " +
+                      topUpAmount.toLocaleString()
+                    : "Добавить · " + topUpAmount.toLocaleString()}
+                </button>
+              </div>
+            </section>
+          ) : null}
+
           {seat.status === "seated" ? (
             <button
               className="action-button"
