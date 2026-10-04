@@ -3551,3 +3551,225 @@ body,
     transition-duration: 0.001ms !important;
   }
 }
+
+
+/* Table Utilities V1 */
+.table-history-button {
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: -0.08em;
+}
+
+.table-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(1, 6, 16, .62);
+  backdrop-filter: blur(6px);
+}
+
+.table-history-drawer {
+  width: min(100%, 520px);
+  max-height: min(74vh, 650px);
+  overflow-y: auto;
+  padding: 8px 16px max(18px, env(safe-area-inset-bottom));
+  border-radius: 26px 26px 0 0;
+  background:
+    radial-gradient(circle at 80% 0%, rgba(61, 93, 195, .14), transparent 32%),
+    linear-gradient(180deg, #101d3c 0%, #071225 100%);
+  border: 1px solid rgba(255,255,255,.08);
+  border-bottom: 0;
+  box-shadow: 0 -24px 60px rgba(0,0,0,.40);
+}
+
+.table-drawer-handle {
+  width: 42px;
+  height: 4px;
+  margin: 1px auto 12px;
+  border-radius: 999px;
+  background: rgba(199, 211, 241, .32);
+}
+
+.table-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 13px;
+}
+
+.table-drawer-header span {
+  color: #6f8cff;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .14em;
+}
+
+.table-drawer-header h3 {
+  margin: 2px 0 0;
+  font-size: 20px;
+}
+
+.table-drawer-close {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.045);
+  color: #cbd7f4;
+  font-size: 22px;
+}
+
+.history-hand-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.history-hand-summary > div {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 15px;
+  display: grid;
+  gap: 2px;
+  background: rgba(255,255,255,.045);
+  border: 1px solid rgba(255,255,255,.06);
+}
+
+.history-hand-summary span,
+.history-recent-list > span {
+  color: #7189c8;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: .13em;
+}
+
+.history-hand-summary strong {
+  font-size: 15px;
+}
+
+.history-hand-summary small {
+  color: #7c90b4;
+  font-size: 8px;
+}
+
+.history-my-cards strong {
+  overflow-wrap: anywhere;
+  color: #f5f7ff;
+}
+
+.history-board {
+  margin: 0 0 9px;
+  color: #91a4c7;
+  font-size: 9px;
+}
+
+.history-actions-drawer {
+  display: grid;
+  gap: 5px;
+  max-height: 245px;
+  overflow-y: auto;
+}
+
+.history-actions-drawer article {
+  display: grid;
+  grid-template-columns: 28px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 9px;
+  border-radius: 11px;
+  background: rgba(3, 9, 21, .46);
+  border: 1px solid rgba(255,255,255,.045);
+}
+
+.history-actions-drawer article > span {
+  color: #697fa7;
+  font-size: 8px;
+}
+
+.history-actions-drawer article strong {
+  font-size: 9px;
+}
+
+.history-actions-drawer article b {
+  color: #b7c9ed;
+  font-size: 9px;
+  text-transform: capitalize;
+}
+
+.history-actions-drawer article small {
+  color: #8195b9;
+  font-size: 8px;
+}
+
+.history-recent-list {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.history-recent-list > span {
+  grid-column: 1 / -1;
+}
+
+.history-recent-list article {
+  min-width: 0;
+  padding: 8px;
+  border-radius: 11px;
+  display: grid;
+  gap: 2px;
+  background: rgba(255,255,255,.035);
+}
+
+.history-recent-list strong {
+  font-size: 10px;
+}
+
+.history-recent-list small {
+  color: #7184a8;
+  font-size: 7px;
+}
+
+.history-empty {
+  padding: 24px 12px;
+  color: #8194b8;
+  text-align: center;
+  font-size: 10px;
+}
+
+@media (max-width: 360px) {
+  .table-history-drawer {
+    padding-inline: 12px;
+  }
+
+  .history-hand-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .table-drawer-backdrop {
+    animation: table-drawer-fade 150ms ease-out both;
+  }
+
+  .table-history-drawer {
+    animation: table-drawer-rise 190ms cubic-bezier(.2,.8,.2,1) both;
+  }
+}
+
+@keyframes table-drawer-fade {
+  from { background: rgba(1, 6, 16, 0); backdrop-filter: blur(0); }
+  to { background: rgba(1, 6, 16, .62); backdrop-filter: blur(6px); }
+}
+
+@keyframes table-drawer-rise {
+  from { opacity: 0; transform: translateY(26px); }
+  to { opacity: 1; transform: translateY(0); }
+}
