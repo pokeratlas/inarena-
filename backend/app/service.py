@@ -346,6 +346,109 @@ def get_player_balance(session_id: str) -> dict:
         conn.close()
 
 
+def _apply_pending_cash_topups_in_conn(conn, table_id: str) -> None:
+    table = conn.execute(
+        """
+        SELECT table_mode, cash_buyin_max
+        FROM runtime_tables
+        WHERE id = ?
+        """,
+        (table_id,),
+    ).fetchone()
+    if table is None or table["table_mode"] != "cash":
+        return
+
+    pending_rows = conn.execute(
+        """
+        SELECT p.player_id, p.amount, s.stack
+        FROM cash_pending_topups p
+        LEFT JOIN runtime_seats s
+          ON s.table_id = p.table_id AND s.player_id = p.player_id
+        WHERE p.table_id = ?
+        ORDER BY p.created_at ASC, p.player_id ASC
+        """,
+        (table_id,),
+    ).fetchall()
+    if not pending_rows:
+        return
+
+    max_stack = int(table["cash_buyin_max"])
+    for row in pending_rows:
+        player_id = row["player_id"]
+        queued = int(row["amount"])
+        current_stack = (
+            int(row["stack"])
+            if row["stack"] is not None
+            else None
+        )
+
+        if current_stack is None:
+            applied = 0
+            refund = queued
+        else:
+            room = max(0, max_stack - current_stack)
+            applied = min(queued, room)
+            refund = queued - applied
+
+        if applied > 0:
+            conn.execute(
+                """
+                UPDATE runtime_seats
+                SET stack = stack + ?, updated_at = CURRENT_TIMESTAMP
+                WHERE table_id = ? AND player_id = ?
+                """,
+                (applied, table_id, player_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO table_ledger(
+                    table_id, player_id, entry_type, amount, details_json
+                ) VALUES (?, ?, 'topup', ?, ?)
+                """,
+                (
+                    table_id,
+                    player_id,
+                    applied,
+                    json.dumps(
+                        {"source": "queued"},
+                        separators=(",", ":"),
+                    ),
+                ),
+            )
+
+        if refund > 0:
+            _ensure_player_balance(conn, player_id)
+            conn.execute(
+                """
+                UPDATE player_balances
+                SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ?
+                """,
+                (refund, player_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO table_ledger(
+                    table_id, player_id, entry_type, amount, details_json
+                ) VALUES (?, ?, 'topup_refund', ?, ?)
+                """,
+                (
+                    table_id,
+                    player_id,
+                    refund,
+                    json.dumps(
+                        {"reason": "stack_at_or_above_max"},
+                        separators=(",", ":"),
+                    ),
+                ),
+            )
+
+    conn.execute(
+        "DELETE FROM cash_pending_topups WHERE table_id = ?",
+        (table_id,),
+    )
+
+
 def operator_adjust_balance(user_id: str, delta: int) -> dict:
     with transaction() as conn:
         current = _ensure_player_balance(conn, user_id)
@@ -1710,6 +1813,8 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
         if existing:
             raise ConflictError("active hand already exists")
 
+        _apply_pending_cash_topups_in_conn(conn, table_id)
+
         seat_rows = conn.execute(
             """
             SELECT seat_no, player_id, stack
@@ -2453,6 +2558,7 @@ def _settle_payouts_in_conn(
     )
     conn.execute("DELETE FROM active_hands WHERE table_id = ?", (table_id,))
     if table_mode == "cash":
+        _apply_pending_cash_topups_in_conn(conn, table_id)
         conn.execute(
             """
             UPDATE runtime_seats
@@ -3108,6 +3214,129 @@ def tournament_addon(table_id: str, session_id: str) -> dict:
     return get_table_state(table_id)
 
 
+def top_up_cash_with_session(
+    table_id: str,
+    session_id: str,
+    amount: int,
+    mutation_receipt: dict | None = None,
+) -> dict:
+    if int(amount) <= 0:
+        raise ConflictError("top-up amount must be positive")
+
+    session = get_session(session_id)
+    player_id = session["user_id"]
+    amount = int(amount)
+
+    with transaction() as conn:
+        _require_table(conn, table_id)
+        table = conn.execute(
+            """
+            SELECT table_mode, status, cash_buyin_max
+            FROM runtime_tables
+            WHERE id = ?
+            """,
+            (table_id,),
+        ).fetchone()
+        if table["table_mode"] != "cash":
+            raise ConflictError("top-up is available only at cash tables")
+        if table["status"] == "closed":
+            raise ConflictError("table is closed")
+
+        seat = conn.execute(
+            """
+            SELECT stack, status
+            FROM runtime_seats
+            WHERE table_id = ? AND player_id = ?
+            """,
+            (table_id, player_id),
+        ).fetchone()
+        if seat is None:
+            raise NotFoundError("player is not seated")
+        if seat["status"] not in {
+            "seated",
+            "sitting_out",
+            "sitting_out_next",
+            "sitting_in_next",
+        }:
+            raise ConflictError("player is not eligible for top-up")
+
+        pending = conn.execute(
+            """
+            SELECT amount
+            FROM cash_pending_topups
+            WHERE table_id = ? AND player_id = ?
+            """,
+            (table_id, player_id),
+        ).fetchone()
+        pending_amount = int(pending["amount"]) if pending is not None else 0
+        max_stack = int(table["cash_buyin_max"])
+        if int(seat["stack"]) + pending_amount + amount > max_stack:
+            raise ConflictError("top-up exceeds cash table maximum stack")
+
+        balance = _ensure_player_balance(conn, player_id)
+        if balance < amount:
+            raise ConflictError("insufficient chip balance")
+
+        conn.execute(
+            """
+            UPDATE player_balances
+            SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+            """,
+            (amount, player_id),
+        )
+
+        active = conn.execute(
+            "SELECT 1 FROM active_hands WHERE table_id = ?",
+            (table_id,),
+        ).fetchone()
+        if active:
+            conn.execute(
+                """
+                INSERT INTO cash_pending_topups(
+                    table_id, player_id, amount
+                ) VALUES (?, ?, ?)
+                ON CONFLICT(table_id, player_id)
+                DO UPDATE SET
+                    amount = cash_pending_topups.amount + excluded.amount,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (table_id, player_id, amount),
+            )
+            event_type = "topup_queued"
+        else:
+            conn.execute(
+                """
+                UPDATE runtime_seats
+                SET stack = stack + ?, updated_at = CURRENT_TIMESTAMP
+                WHERE table_id = ? AND player_id = ?
+                """,
+                (amount, table_id, player_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO table_ledger(
+                    table_id, player_id, entry_type, amount, details_json
+                ) VALUES (?, ?, 'topup', ?, ?)
+                """,
+                (
+                    table_id,
+                    player_id,
+                    amount,
+                    json.dumps(
+                        {"source": "immediate"},
+                        separators=(",", ":"),
+                    ),
+                ),
+            )
+            event_type = "topup_applied"
+
+        _enqueue_realtime_outbox(conn, table_id, event_type)
+        result = _get_table_state_with_conn(conn, table_id)
+        _store_mutation_receipt_in_conn(conn, mutation_receipt, result)
+    return result
+
+
 def sit_out_with_session(
     table_id: str,
     session_id: str,
@@ -3246,6 +3475,7 @@ def stand_with_session(
         ).fetchone()
         if table["table_mode"] != "cash":
             raise ConflictError("tournament players cannot leave the table")
+        _apply_pending_cash_topups_in_conn(conn, table_id)
         seat = conn.execute(
             """
             SELECT stack
@@ -3698,8 +3928,21 @@ def _get_table_state_with_conn(conn, table_id: str) -> dict:
                     photo_url = raw_photo_url
             except (TypeError, ValueError, json.JSONDecodeError):
                 pass
+        pending_top_up_row = conn.execute(
+            """
+            SELECT amount
+            FROM cash_pending_topups
+            WHERE table_id = ? AND player_id = ?
+            """,
+            (table_id, row["player_id"]),
+        ).fetchone()
         seat["display_name"] = display_name
         seat["photo_url"] = photo_url
+        seat["pending_top_up"] = (
+            int(pending_top_up_row["amount"])
+            if pending_top_up_row is not None
+            else 0
+        )
         public_seats.append(seat)
     hand = conn.execute(
         """
