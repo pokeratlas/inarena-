@@ -67,6 +67,7 @@ export interface TableState {
   late_registration_close_at: number | null;
   registration_count: number;
   waitlist_count: number;
+  max_seats: number;
   seats: TableSeat[];
   active_hand: ActiveHand | null;
   created_at: string;

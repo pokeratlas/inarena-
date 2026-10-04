@@ -217,8 +217,8 @@ def test_crash_after_reservation_claim_recovers_without_second_buyin(env):
     waiter = make_session(service, "waiter")
     sid = waiter["session_id"]
 
-    # Fill all nine seats through the domain service so waitlist is required.
-    for seat_no in range(1, 10):
+    # Fill all seven seats through the domain service so waitlist is required.
+    for seat_no in range(1, 8):
         service.join_table(
             table_id,
             f"occupant-{seat_no}",

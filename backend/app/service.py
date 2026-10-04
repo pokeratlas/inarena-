@@ -12,6 +12,9 @@ from .db import connect, transaction
 from .poker import evaluate_seven
 
 
+TABLE_MAX_SEATS = 7
+
+
 class NotFoundError(RuntimeError):
     pass
 
@@ -1164,6 +1167,15 @@ def _assign_waitlist_reservations_in_conn(conn, table_id: str) -> list[dict]:
         UPDATE seat_reservations
         SET status = 'expired', updated_at = CURRENT_TIMESTAMP
         WHERE table_id = ? AND status = 'active'
+          AND seat_no > ?
+        """,
+        (table_id, TABLE_MAX_SEATS),
+    )
+    conn.execute(
+        """
+        UPDATE seat_reservations
+        SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+        WHERE table_id = ? AND status = 'active'
           AND expires_at_epoch <= ?
         """,
         (table_id, now),
@@ -1202,7 +1214,7 @@ def _assign_waitlist_reservations_in_conn(conn, table_id: str) -> list[dict]:
     }
     free = [
         seat_no
-        for seat_no in range(1, 10)
+        for seat_no in range(1, TABLE_MAX_SEATS + 1)
         if seat_no not in occupied and seat_no not in reserved
     ]
     created: list[dict] = []
@@ -1689,8 +1701,10 @@ def _require_table(conn, table_id: str) -> None:
 
 
 def join_table(table_id: str, player_id: str, seat_no: int, stack: int) -> dict:
-    if seat_no < 1 or seat_no > 9:
-        raise ConflictError("seat_no must be between 1 and 9")
+    if seat_no < 1 or seat_no > TABLE_MAX_SEATS:
+        raise ConflictError(
+            f"seat_no must be between 1 and {TABLE_MAX_SEATS}"
+        )
     if stack < 0:
         raise ConflictError("stack must be non-negative")
 
@@ -3525,6 +3539,10 @@ def join_table_with_session(
     stack: int,
     mutation_receipt: dict | None = None,
 ) -> dict:
+    if seat_no < 1 or seat_no > TABLE_MAX_SEATS:
+        raise ConflictError(
+            f"seat_no must be between 1 and {TABLE_MAX_SEATS}"
+        )
     session = get_session(session_id)
     player_id = session["user_id"]
 
@@ -4006,6 +4024,7 @@ def _get_table_state_with_conn(conn, table_id: str) -> dict:
         "late_registration_close_at": table["late_registration_close_at"],
         "registration_count": registration_count,
         "waitlist_count": waitlist_count,
+        "max_seats": TABLE_MAX_SEATS,
         "created_at": table["created_at"],
         "updated_at": table["updated_at"],
         "seats": public_seats,

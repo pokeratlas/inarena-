@@ -44,6 +44,7 @@ from .telegram_auth import TelegramAuthError, validate_init_data
 from .service import (
     AuthenticationError,
     ConflictError,
+    TABLE_MAX_SEATS,
     build_mutation_receipt_context,
     append_table_event,
     NotFoundError,
@@ -164,12 +165,12 @@ class TableCreate(BaseModel):
 
 class JoinRequest(BaseModel):
     player_id: str = Field(min_length=1)
-    seat_no: int = Field(ge=1, le=9)
+    seat_no: int = Field(ge=1, le=TABLE_MAX_SEATS)
     stack: int = Field(ge=0)
 
 
 class AuthJoinRequest(BaseModel):
-    seat_no: int = Field(ge=1, le=9)
+    seat_no: int = Field(ge=1, le=TABLE_MAX_SEATS)
     stack: int = Field(ge=0)
 
 
@@ -187,7 +188,7 @@ class CashTopUpRequest(BaseModel):
 
 
 class StartHandRequest(BaseModel):
-    button_seat: int | None = Field(default=None, ge=1, le=9)
+    button_seat: int | None = Field(default=None, ge=1, le=TABLE_MAX_SEATS)
 
 
 class PotRequest(BaseModel):

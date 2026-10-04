@@ -1385,7 +1385,7 @@ function OnlineLobby({
             const seated = table.seats.some(
               (seat) => seat.player_id === playerId,
             );
-            const maxSeats = 9;
+            const maxSeats = table.max_seats;
             const occupied = new Set(table.seats.map((seat) => seat.seat_no));
             const firstFreeSeat = Array.from(
               { length: maxSeats },
