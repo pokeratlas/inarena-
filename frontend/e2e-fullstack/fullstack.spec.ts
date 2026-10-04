@@ -1023,3 +1023,47 @@ test("cash MVP acceptance: showdown, reconnect, top-up, sit-out, return and exit
   expect(finalState.active_hand).toBeNull();
   expect(finalState.status).toBe("open");
 });
+
+
+test("tables enforce fixed seven-max capacity", async ({ request }) => {
+  const token = await createOperatorToken(request);
+  const headers = { "X-Operator-Key": token };
+  const created = await request.post(`${API}/api/v1/operator/tables`, {
+    headers,
+    data: { name: "Seven max contract" },
+  });
+  expect(created.ok()).toBeTruthy();
+  const table = await created.json();
+
+  const seatSeven = await request.post(
+    `${API}/api/v1/tables/${table.id}/join`,
+    {
+      data: {
+        player_id: "seven-max-seat-7",
+        seat_no: 7,
+        stack: 10_000,
+      },
+    },
+  );
+  expect(seatSeven.ok()).toBeTruthy();
+
+  const seatEight = await request.post(
+    `${API}/api/v1/tables/${table.id}/join`,
+    {
+      data: {
+        player_id: "seven-max-seat-8",
+        seat_no: 8,
+        stack: 10_000,
+      },
+    },
+  );
+  expect(seatEight.status()).toBe(422);
+
+  const state = await (
+    await request.get(`${API}/api/v1/tables/${table.id}`)
+  ).json();
+  expect(state.max_seats).toBe(7);
+  expect(state.seats).toHaveLength(1);
+  expect(state.seats[0].seat_no).toBe(7);
+  expect(state.seats.some((seat: any) => seat.seat_no > 7)).toBe(false);
+});
