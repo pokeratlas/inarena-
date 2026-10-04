@@ -212,7 +212,7 @@ test("player profile shows only identity and refreshed balance @guardian-profile
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   await expectUsableControls(page, [page.getByRole("button", { name: "Скопировать ID" })]);
   await page.getByRole("button", { name: "Скопировать ID" }).click();
-  await expect(page.getByRole("status")).toHaveText("ID скопирован");
+  await expect(page.locator(".profile-inline-status")).toHaveText("ID скопирован");
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(userId);
   await page.evaluate(() => {
     Object.defineProperty(navigator.clipboard, "writeText", {
@@ -220,7 +220,7 @@ test("player profile shows only identity and refreshed balance @guardian-profile
     });
   });
   await page.getByRole("button", { name: "Скопировать ID" }).click();
-  await expect(page.getByRole("status")).toContainText("скопируйте вручную");
+  await expect(page.locator(".profile-inline-status")).toContainText("скопируйте вручную");
   await expect(page.getByText("0 chips", { exact: true })).toBeVisible();
   expect(await page.locator("body").innerText()).not.toContain(session.session_id);
   await expect(page.getByRole("button", { name: "Создать стол" })).toHaveCount(0);
