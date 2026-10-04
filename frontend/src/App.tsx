@@ -2598,6 +2598,7 @@ function PlayerProfile({ session }: { session: AuthSession | null }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (!session) return;
@@ -2626,6 +2627,17 @@ function PlayerProfile({ session }: { session: AuthSession | null }) {
           <h2>{name}</h2>
           <p>ID игрока: <strong>{session.user_id}</strong></p>
           <p>Этот ID используется владельцем клуба для начисления фишек.</p>
+          <button className="action-button" type="button" onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(session.user_id);
+              setCopyStatus("ID скопирован");
+            } catch {
+              setCopyStatus("Не удалось скопировать ID. Выделите его и скопируйте вручную.");
+            }
+          }}>
+            Скопировать ID
+          </button>
+          {copyStatus ? <p role="status">{copyStatus}</p> : null}
           {loading ? <p role="status">Загружаем баланс…</p> : null}
           {error ? <p role="alert">{error}</p> : null}
           {balance ? <p>Баланс: <strong>{balance.balance} chips</strong></p> : null}
