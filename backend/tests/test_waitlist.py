@@ -60,7 +60,7 @@ def cash_table(client: TestClient) -> str:
 
 
 def fill_table(client: TestClient, table_id: str):
-    for seat_no in range(1, 10):
+    for seat_no in range(1, 8):
         r = client.post(
             f"/api/v1/tables/{table_id}/join",
             json={
