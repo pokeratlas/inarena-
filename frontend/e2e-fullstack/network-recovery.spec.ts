@@ -112,7 +112,7 @@ test("active cash hand recovers after an offline gap without duplicate action @g
   await measureJourney("network-recovery", "active-hand-reconnect", async () => {
     await context.setOffline(false);
     await expect(page.getByLabel("Соединение активно", { exact: true })).toBeVisible();
-    await expect(page.locator(".pot-display strong")).toHaveText("150");
+    await expect(page.locator(".pot-display strong")).toHaveText("1.5 BB");\n    await expect(page.locator(".pot-display-v2")).toContainText("150 chips");
     await expect(page.locator(".street-label")).toHaveText("PREFLOP");
   });
 
