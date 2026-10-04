@@ -11,11 +11,11 @@ from pathlib import Path
 DESKTOP = (
     "owner-session", "join", "owner-recovery", "owner-create", "profile",
     "owner-live", "cash-loop", "watchdog", "leave", "identity", "sit-out",
-    "top-up", "queued-top-up", "cash-acceptance", "seven-max", "owner-lifecycle", "table-chat",
+    "top-up", "queued-top-up", "cash-acceptance", "seven-max", "owner-lifecycle", "table-chat", "return",
 )
 REQUIRED = {
     "guardian-desktop": DESKTOP,
-    "guardian-mobile": ("join", "owner-create", "owner-live", "owner-lifecycle", "table-chat"),
+    "guardian-mobile": ("join", "owner-create", "owner-live", "owner-lifecycle", "table-chat", "return"),
 }
 BUDGETS = json.loads((Path(__file__).resolve().parents[1] /
                      "frontend/e2e-fullstack/guardian-budgets.json").read_text())
