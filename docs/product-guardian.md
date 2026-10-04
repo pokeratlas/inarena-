@@ -6,13 +6,13 @@ No AI service, production credentials, new database, telemetry, or deployment st
 ## Required journeys
 
 Guardian now treats complete player and owner workflows as the release contract.
-Desktop covers 21 journeys: owner session/recovery/create/live/lifecycle, authenticated
+Desktop covers 22 journeys: owner session/recovery/create/live/lifecycle, authenticated
 join/profile/identity, cash autostart/watchdog/leave/sit-out/top-up/showdown acceptance,
-fixed seven-max, private table chat, safe return-to-table, Owner Quick Credit, active-hand network recovery, and the Table V2 seven-max visual contract.
+fixed seven-max, private table chat, safe return-to-table, Owner Quick Credit, active-hand network recovery, the Table V2 seven-max visual contract, and the Table Utilities history drawer.
 
-Mobile Chromium (iPhone 13 viewport/touch emulation) repeats ten critical journeys:
+Mobile Chromium (iPhone 13 viewport/touch emulation) repeats eleven critical journeys:
 join, owner creation, live owner view, owner lifecycle, table chat, return-to-table,
-Owner Quick Credit, active-hand network recovery, Table V2 layout, and Profile V2. This remains browser emulation rather than a real Telegram
+Owner Quick Credit, active-hand network recovery, Table V2 layout, Profile V2, and the Table Utilities history drawer. This remains browser emulation rather than a real Telegram
 iPhone/WebKit dry run; real-device validation is a separate closed-beta requirement.
 
 API calls prepare disposable test users/tables/chips. User-visible actions are still
@@ -20,7 +20,7 @@ performed through the UI. Telegram HMAC validation remains in backend tests.
 
 ## Gate policy
 
-- READY: all 31 required project/journey pairs pass on their first attempt.
+- READY: all 33 required project/journey pairs pass on their first attempt.
 - WARNING: all pass, but at least one needs a retry. Investigate and rerun cleanly.
 - BLOCKED: failed, timed out, skipped, missing, duplicated or incomplete journey,
   missing/invalid report, runner/setup error, missing/invalid required measurement,
