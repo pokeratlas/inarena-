@@ -7,7 +7,6 @@ import {
   authenticateTelegram,
   claimSeatReservation,
   getCashWaitlistStatus,
-  getCurrentSession,
   getOperatorAudit,
   getOperatorDashboard,
   getReleaseMetadata,
@@ -88,6 +87,11 @@ function useTelegramSession() {
     let active = true;
     const webApp = window.Telegram?.WebApp;
 
+    // Telegram's native loading placeholder should disappear as soon as our
+    // shell is mounted. Authentication may continue in the background.
+    webApp?.ready();
+    webApp?.expand();
+
     const persist = (nextSession: AuthSession) => {
       if (!active) return;
       setSession(nextSession);
@@ -104,8 +108,6 @@ function useTelegramSession() {
         return;
       }
 
-      webApp.ready();
-      webApp.expand();
       if (active) setStatus("authenticating");
       persist(await authenticateTelegram(webApp.initData));
     };
@@ -119,7 +121,6 @@ function useTelegramSession() {
 
       try {
         if (active) setStatus("authenticating");
-        await getCurrentSession(stored);
         persist(await refreshCurrentSession(stored));
       } catch {
         window.localStorage.removeItem("inarena_session_id");
