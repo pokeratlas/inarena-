@@ -17,5 +17,8 @@
   },
   "owner-credit": {
     "quick-credit": 5000
+  },
+  "network-recovery": {
+    "active-hand-reconnect": 8000
   }
 }
