@@ -31,7 +31,7 @@ test("operator bootstrap exchanges for scoped session and dashboard loads", asyn
   await expect(page.getByPlaceholder("Bootstrap operator key")).toHaveCount(0);
   const reopened = await page.context().newPage();
   await reopened.goto("/?operator=1");
-  await expect(reopened.getByText("Tables", { exact: true })).toBeVisible();
+  await expect(reopened.getByRole("heading", { name: "Table Manager" })).toBeVisible();
   await reopened.close();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Table Manager" })).toBeVisible();
@@ -196,39 +196,63 @@ test("player profile shows only identity and refreshed balance", async ({ page, 
 });
 
 
-test("owner starts a two-player hand and duplicate start stays disabled", async ({ page, request }) => {
+test("owner table manager reflects a two-player live hand", async ({ page, request }) => {
   const token = await createOperatorToken(request);
   const headers = { "X-Operator-Key": token };
-  const created = await request.post(`${API}/api/v1/operator/tables`, { headers, data: { name: "Start hand test" } });
+  const created = await request.post(`${API}/api/v1/operator/tables`, {
+    headers,
+    data: { name: "Start hand test" },
+  });
   expect(created.ok()).toBeTruthy();
   const table = await created.json();
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "Начать раздачу" })).toHaveCount(0);
+
   await page.goto("/?operator=1");
   await page.getByPlaceholder("Bootstrap operator key").fill(BOOTSTRAP_KEY);
   await page.getByRole("button", { name: "Получить сессию" }).click();
-  const card = page.locator(".operator-table-card").filter({ hasText: "Start hand test" });
-  await expect(
-    card.getByRole("button", { name: "Начать раздачу" }),
-  ).toHaveCount(0);
+
+  const card = page.locator(".operator-table-card").filter({
+    hasText: "Start hand test",
+  });
+  await expect(card).toBeVisible();
 
   for (const seat of [1, 2]) {
     const user = `start-player-${seat}`;
-    expect((await request.post(`${API}/api/v1/operator/balance`, { headers, data: { user_id: user, delta: 20000 } })).ok()).toBeTruthy();
-    const session = await (await request.post(`${API}/api/v1/sessions`, { data: { user_id: user, provider: "test", data: {} } })).json();
-    expect((await request.post(`${API}/api/v1/tables/${table.id}/join-auth`, { headers: { "X-Session-ID": session.session_id, "Idempotency-Key": `start-join-${seat}` }, data: { seat_no: seat, stack: 10000 } })).ok()).toBeTruthy();
+    expect((await request.post(`${API}/api/v1/operator/balance`, {
+      headers,
+      data: { user_id: user, delta: 20000 },
+    })).ok()).toBeTruthy();
+    const session = await (await request.post(`${API}/api/v1/sessions`, {
+      data: { user_id: user, provider: "test", data: {} },
+    })).json();
+    expect((await request.post(`${API}/api/v1/tables/${table.id}/join-auth`, {
+      headers: {
+        "X-Session-ID": session.session_id,
+        "Idempotency-Key": `start-join-${seat}`,
+      },
+      data: { seat_no: seat, stack: 10000 },
+    })).ok()).toBeTruthy();
   }
 
-  const start = card.getByRole("button", { name: "Начать раздачу" });
-  await expect(start).toBeVisible({ timeout: 10_000 });
-  await start.click();
-  await expect(start).toHaveCount(0);
-  const state = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
+  await expect.poll(async () => {
+    const state = await (
+      await request.get(`${API}/api/v1/tables/${table.id}`)
+    ).json();
+    return state.active_hand?.street ?? null;
+  }, { timeout: 10_000 }).toBe("preflop");
+
+  await expect(
+    card.getByText("Идёт раздача", { exact: true }),
+  ).toBeVisible({ timeout: 10_000 });
+  await card.getByRole("button", { name: "Управление" }).click();
+  await expect(card.getByText(/PREFLOP · Pot 150/)).toBeVisible();
+
+  const state = await (
+    await request.get(`${API}/api/v1/tables/${table.id}`)
+  ).json();
   expect(state.active_hand.street).toBe("preflop");
   expect(state.active_hand.pot).toBe(150);
   expect(state.seats).toHaveLength(2);
 });
-
 
 test("cash table auto-starts for two players and continues to next hand", async ({ browser, request }) => {
   const token = await createOperatorToken(request);
