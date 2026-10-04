@@ -23,7 +23,9 @@ import {
   operatorAdjustBalance,
   operatorBlindScheduleCommand,
   operatorCloseTable,
+  operatorConfigureCashTable,
   operatorCreateTable,
+  operatorSetTableStatus,
   operatorStartHand,
   operatorTournamentCommand,
   operatorWindowControl,
@@ -1910,14 +1912,23 @@ function DiagnosticsView({
 
 function OperatorDashboardView() {
   const [operatorKey, setOperatorKey] = useState(
-    () => window.localStorage.getItem("inarena_operator_token") ?? window.sessionStorage.getItem("inarena_operator_token") ?? "",
+    () =>
+      window.localStorage.getItem("inarena_operator_token") ??
+      window.sessionStorage.getItem("inarena_operator_token") ??
+      "",
   );
   const [bootstrapKey, setBootstrapKey] = useState("");
   const [dashboard, setDashboard] = useState<OperatorDashboard | null>(null);
+  const [tables, setTables] = useState<TableState[]>([]);
   const [audit, setAudit] = useState<OperatorAuditEntry[]>([]);
+  const [expandedTableId, setExpandedTableId] = useState<string | null>(null);
   const [tableName, setTableName] = useState("");
+  const [smallBlind, setSmallBlind] = useState(50);
+  const [bigBlind, setBigBlind] = useState(100);
+  const [buyInMin, setBuyInMin] = useState(1_000);
+  const [buyInMax, setBuyInMax] = useState(10_000);
   const [creatingTable, setCreatingTable] = useState(false);
-  const [startingHand, setStartingHand] = useState<string | null>(null);
+  const [tableAction, setTableAction] = useState<string | null>(null);
   const [balanceUser, setBalanceUser] = useState("");
   const [balanceDelta, setBalanceDelta] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -1925,18 +1936,21 @@ function OperatorDashboardView() {
   const load = async (key = operatorKey) => {
     setError(null);
     try {
-      const [data, auditRows] = await Promise.all([
+      const [data, auditRows, tableRows] = await Promise.all([
         getOperatorDashboard(key),
         getOperatorAudit(key),
+        listTables(),
       ]);
       setDashboard(data);
       setAudit(auditRows);
+      setTables(tableRows);
       if (key.startsWith("ops_")) {
         window.localStorage.setItem("inarena_operator_token", key);
         window.sessionStorage.removeItem("inarena_operator_token");
       }
     } catch (cause) {
       setDashboard(null);
+      setTables([]);
       const message =
         cause instanceof Error ? cause.message : "Operator error";
       if (
@@ -1958,12 +1972,45 @@ function OperatorDashboardView() {
     if (operatorKey) void load(operatorKey);
   }, []);
 
+  const runTableAction = async (
+    tableId: string,
+    operation: () => Promise<TableState>,
+  ) => {
+    setTableAction(tableId);
+    setError(null);
+    try {
+      await operation();
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Не удалось изменить состояние стола",
+      );
+    } finally {
+      setTableAction(null);
+    }
+  };
+
+  const orderedTables = tables
+    .slice()
+    .sort((left, right) => {
+      if (left.table_mode !== right.table_mode) {
+        return left.table_mode === "cash" ? -1 : 1;
+      }
+      if (Boolean(left.active_hand) !== Boolean(right.active_hand)) {
+        return left.active_hand ? -1 : 1;
+      }
+      return left.name.localeCompare(right.name);
+    });
+
   return (
-    <main className="app-main operator-dashboard">
-      <header className="app-header operator-header">
+    <main className="app-main operator-dashboard table-manager">
+      <header className="app-header operator-header manager-header">
         <div>
-          <p>INARENA OPERATOR</p>
-          <h1>Dashboard</h1>
+          <p>INARENA OWNER</p>
+          <h1>Table Manager</h1>
+          <span>7-max cash club</span>
         </div>
         {dashboard && operatorKey ? (
           <button
@@ -1975,6 +2022,7 @@ function OperatorDashboardView() {
               window.localStorage.removeItem("inarena_operator_token");
               setOperatorKey("");
               setDashboard(null);
+              setTables([]);
               setAudit([]);
               setError(null);
             }}
@@ -1984,300 +2032,525 @@ function OperatorDashboardView() {
         ) : null}
       </header>
 
-      {!dashboard ? <>
-      <p>Вход будет сохранён на этом устройстве на 30 дней.</p>
-      <div className="operator-login">
-        <input
-          type="password"
-          placeholder="Bootstrap operator key"
-          value={bootstrapKey}
-          onChange={(event) => setBootstrapKey(event.target.value)}
-        />
-        <button
-          className="action-button action-primary"
-          type="button"
-          disabled={!bootstrapKey}
-          onClick={() =>
-            void authenticateOperator(bootstrapKey, [], true)
-              .then((session) => {
-                setOperatorKey(session.token);
-                setBootstrapKey("");
-                window.localStorage.setItem(
-                  "inarena_operator_token",
-                  session.token,
-                );
-                return load(session.token);
-              })
-              .catch((cause) =>
-                setError(
-                  cause instanceof Error
-                    ? cause.message
-                    : "Operator authentication failed",
-                ),
-              )
-          }
-        >
-          Получить сессию
-        </button>
-      </div>
-      </> : null}
-
-      {error ? <p role="alert">{error}</p> : null}
-
-      {dashboard ? (
+      {!dashboard ? (
         <>
-          <form
-            className="operator-login operator-table-create"
-            aria-label="Создание стола"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (creatingTable || !tableName.trim()) return;
-              setCreatingTable(true);
-              setError(null);
-              void operatorCreateTable(tableName, operatorKey)
-                .then(async () => {
-                  setTableName("");
-                  await load();
-                })
-                .catch(async (cause) => {
-                  if (cause instanceof Error && cause.message.includes("expired or unauthorized")) {
-                    await load();
-                    return;
-                  }
-                  setError(cause instanceof Error ? cause.message : "Не удалось создать стол");
-                })
-                .finally(() => setCreatingTable(false));
-            }}
-          >
+          <p>Вход будет сохранён на этом устройстве на 30 дней.</p>
+          <div className="operator-login">
             <input
-              aria-label="Название стола"
-              placeholder="Название стола"
-              value={tableName}
-              disabled={creatingTable}
-              onChange={(event) => setTableName(event.target.value)}
-            />
-            <button
-              className="action-button action-primary"
-              type="submit"
-              disabled={creatingTable || !tableName.trim()}
-            >
-              {creatingTable ? "Создание…" : "Создать стол"}
-            </button>
-          </form>
-          <section className="operator-balance-control">
-            <input
-              placeholder="User ID"
-              value={balanceUser}
-              onChange={(event) => setBalanceUser(event.target.value)}
-            />
-            <input
-              type="number"
-              placeholder="Δ chips"
-              value={balanceDelta}
-              onChange={(event) => setBalanceDelta(Number(event.target.value))}
+              type="password"
+              placeholder="Bootstrap operator key"
+              value={bootstrapKey}
+              onChange={(event) => setBootstrapKey(event.target.value)}
             />
             <button
               className="action-button action-primary"
               type="button"
-              disabled={!balanceUser || balanceDelta === 0}
+              disabled={!bootstrapKey}
               onClick={() =>
-                void operatorAdjustBalance(
-                  balanceUser,
-                  balanceDelta,
-                  operatorKey,
-                )
-                  .then(() => load())
+                void authenticateOperator(bootstrapKey, [], true)
+                  .then((session) => {
+                    setOperatorKey(session.token);
+                    setBootstrapKey("");
+                    window.localStorage.setItem(
+                      "inarena_operator_token",
+                      session.token,
+                    );
+                    return load(session.token);
+                  })
                   .catch((cause) =>
                     setError(
                       cause instanceof Error
                         ? cause.message
-                        : "Balance adjustment failed",
+                        : "Operator authentication failed",
                     ),
                   )
               }
             >
-              Изменить баланс
+              Получить сессию
             </button>
+          </div>
+        </>
+      ) : null}
+
+      {error ? <p className="state-card state-error" role="alert">{error}</p> : null}
+
+      {dashboard ? (
+        <>
+          <section className="manager-metrics" aria-label="Состояние клуба">
+            <article>
+              <strong>{dashboard.cash_tables}</strong>
+              <span>Cash столов</span>
+            </article>
+            <article>
+              <strong>{dashboard.active_hands}</strong>
+              <span>Идёт раздач</span>
+            </article>
+            <article>
+              <strong>{dashboard.seated_players}</strong>
+              <span>Игроков</span>
+            </article>
+            <article>
+              <strong>{dashboard.active_sessions}</strong>
+              <span>Online</span>
+            </article>
           </section>
 
-          <section className="operator-metrics">
-            <article><strong>{dashboard.tables_total}</strong><span>Tables</span></article>
-            <article><strong>{dashboard.active_hands}</strong><span>Active hands</span></article>
-            <article><strong>{dashboard.seated_players}</strong><span>Players</span></article>
-            <article><strong>{dashboard.eliminated_players}</strong><span>Eliminated</span></article>
-            <article><strong>{dashboard.active_sessions}</strong><span>Sessions</span></article>
-            <article><strong>{dashboard.operator_audit_entries}</strong><span>Audit events</span></article>
-          </section>
+          <details className="manager-create" open={tables.length === 0}>
+            <summary>+ Создать cash-стол</summary>
+            <form
+              className="manager-create-form"
+              aria-label="Создание стола"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (creatingTable || !tableName.trim()) return;
+                if (
+                  smallBlind <= 0 ||
+                  bigBlind <= smallBlind ||
+                  buyInMin <= 0 ||
+                  buyInMax < buyInMin
+                ) {
+                  setError("Проверьте blinds и диапазон buy-in.");
+                  return;
+                }
+                setCreatingTable(true);
+                setError(null);
+                void operatorCreateTable(tableName, operatorKey)
+                  .then((created) =>
+                    operatorConfigureCashTable(created.id, operatorKey, {
+                      smallBlind,
+                      bigBlind,
+                      cashBuyinMin: buyInMin,
+                      cashBuyinMax: buyInMax,
+                    }),
+                  )
+                  .then(async () => {
+                    setTableName("");
+                    await load();
+                  })
+                  .catch(async (cause) => {
+                    if (
+                      cause instanceof Error &&
+                      cause.message.includes("expired or unauthorized")
+                    ) {
+                      await load();
+                      return;
+                    }
+                    setError(
+                      cause instanceof Error
+                        ? cause.message
+                        : "Не удалось создать стол",
+                    );
+                  })
+                  .finally(() => setCreatingTable(false));
+              }}
+            >
+              <label>
+                <span>Название</span>
+                <input
+                  aria-label="Название стола"
+                  placeholder="Например, Main 50/100"
+                  value={tableName}
+                  disabled={creatingTable}
+                  onChange={(event) => setTableName(event.target.value)}
+                />
+              </label>
 
-          <section className="operator-tables">
-            {dashboard.tables.map((table) => (
-              <article className="operator-table-card" key={table.id}>
-                <strong>{table.name}</strong>
-                <span>
-                  {table.table_mode} · {table.small_blind}/{table.big_blind} · {table.status}
-                </span>
-                {table.table_mode === "tournament" ? (
-                  <>
-                    <span>Tournament: {table.tournament_status}</span>
-                    <div className="operator-actions">
-                      {table.tournament_status === "scheduled" ? (
-                        <>
-                          <button
-                            className="ghost-button"
-                            type="button"
-                            onClick={() =>
-                              void operatorTournamentCommand(
-                                table.id,
-                                "open-registration",
-                                operatorKey,
-                              ).then(() => load())
-                            }
-                          >
-                            Open registration
-                          </button>
-                          <button
-                            className="ghost-button action-danger"
-                            type="button"
-                            onClick={() =>
-                              void operatorTournamentCommand(
-                                table.id,
-                                "cancel",
-                                operatorKey,
-                              ).then(() => load())
-                            }
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      ) : null}
-                      {table.tournament_status === "registering" ? (
-                        <>
-                          <button
-                            className="action-button action-primary"
-                            type="button"
-                            onClick={() =>
-                              void operatorTournamentCommand(
-                                table.id,
-                                "start",
-                                operatorKey,
-                              ).then(() => load())
-                            }
-                          >
-                            Start tournament
-                          </button>
-                          <button
-                            className="ghost-button action-danger"
-                            type="button"
-                            onClick={() =>
-                              void operatorTournamentCommand(
-                                table.id,
-                                "cancel",
-                                operatorKey,
-                              ).then(() => load())
-                            }
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      ) : null}
+              <div className="manager-field-grid">
+                <label>
+                  <span>Small blind</span>
+                  <input
+                    aria-label="Small blind"
+                    type="number"
+                    min={1}
+                    value={smallBlind}
+                    disabled={creatingTable}
+                    onChange={(event) =>
+                      setSmallBlind(Number(event.target.value))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Big blind</span>
+                  <input
+                    aria-label="Big blind"
+                    type="number"
+                    min={2}
+                    value={bigBlind}
+                    disabled={creatingTable}
+                    onChange={(event) =>
+                      setBigBlind(Number(event.target.value))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Min buy-in</span>
+                  <input
+                    aria-label="Min buy-in"
+                    type="number"
+                    min={1}
+                    value={buyInMin}
+                    disabled={creatingTable}
+                    onChange={(event) =>
+                      setBuyInMin(Number(event.target.value))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Max buy-in</span>
+                  <input
+                    aria-label="Max buy-in"
+                    type="number"
+                    min={1}
+                    value={buyInMax}
+                    disabled={creatingTable}
+                    onChange={(event) =>
+                      setBuyInMax(Number(event.target.value))
+                    }
+                  />
+                </label>
+              </div>
+
+              <div className="manager-capacity-note">
+                <strong>7-max</strong>
+                <span>Формат фиксирован для текущего MVP.</span>
+              </div>
+
+              <button
+                className="action-button action-primary"
+                type="submit"
+                disabled={creatingTable || !tableName.trim()}
+              >
+                {creatingTable ? "Создание…" : "Создать и открыть стол"}
+              </button>
+            </form>
+          </details>
+
+          <section className="manager-table-list" aria-label="Управление столами">
+            {orderedTables.length === 0 ? (
+              <div className="state-card">
+                <strong>Столов пока нет</strong>
+                <span>Создайте первый 7-max cash-стол выше.</span>
+              </div>
+            ) : null}
+
+            {orderedTables.map((table) => {
+              const isCash = table.table_mode === "cash";
+              const activePlayers = table.seats.filter(
+                (seat) => seat.status === "seated",
+              ).length;
+              const isExpanded = expandedTableId === table.id;
+              const busy = tableAction === table.id;
+              const canStart =
+                isCash &&
+                table.status === "open" &&
+                !table.active_hand &&
+                activePlayers >= 2;
+
+              return (
+                <article
+                  className={[
+                    "manager-table-card",
+                    table.active_hand ? "is-live" : "",
+                    table.status === "closed" ? "is-closed" : "",
+                  ].filter(Boolean).join(" ")}
+                  key={table.id}
+                >
+                  <div className="manager-table-head">
+                    <div>
+                      <span className="manager-mode">
+                        {isCash ? "CASH · 7-MAX" : "TOURNAMENT"}
+                      </span>
+                      <strong>{table.name}</strong>
                     </div>
-                    <div className="operator-actions">
-                    {(["start", "pause", "reset"] as const).map((command) => (
+                    <span
+                      className={[
+                        "manager-status",
+                        table.active_hand
+                          ? "live"
+                          : table.status === "closed"
+                            ? "closed"
+                            : table.status === "paused"
+                              ? "paused"
+                              : "open",
+                      ].join(" ")}
+                    >
+                      {table.active_hand
+                        ? "Идёт раздача"
+                        : table.status === "closed"
+                          ? "Закрыт"
+                          : table.status === "paused"
+                            ? "Пауза"
+                            : "Открыт"}
+                    </span>
+                  </div>
+
+                  <div className="manager-table-stats">
+                    <div>
+                      <small>BLINDS</small>
+                      <strong>{table.small_blind}/{table.big_blind}</strong>
+                    </div>
+                    <div>
+                      <small>PLAYERS</small>
+                      <strong>{table.seats.length}/{table.max_seats}</strong>
+                    </div>
+                    <div>
+                      <small>WAIT</small>
+                      <strong>{table.waitlist_count}</strong>
+                    </div>
+                    <div>
+                      <small>BUY-IN</small>
+                      <strong>
+                        {table.cash_buyin_min.toLocaleString()}–
+                        {table.cash_buyin_max.toLocaleString()}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="manager-seat-strip" aria-label="Места за столом">
+                    {Array.from(
+                      { length: table.max_seats },
+                      (_, index) => index + 1,
+                    ).map((seatNo) => {
+                      const seat = table.seats.find(
+                        (item) => item.seat_no === seatNo,
+                      );
+                      return (
+                        <div
+                          className={[
+                            "manager-seat-dot",
+                            seat ? "occupied" : "empty",
+                            seat?.status === "sitting_out" ||
+                            seat?.status === "sitting_out_next"
+                              ? "sitting-out"
+                              : "",
+                          ].filter(Boolean).join(" ")}
+                          key={seatNo}
+                          title={
+                            seat
+                              ? `${seat.display_name ?? seat.player_id} · ${seat.stack}`
+                              : `Seat ${seatNo} свободен`
+                          }
+                        >
+                          {seat?.photo_url ? (
+                            <img
+                              src={seat.photo_url}
+                              alt=""
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <span>{seat ? (seat.display_name?.[0] ?? "P").toUpperCase() : seatNo}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="manager-table-actions">
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() =>
+                        setExpandedTableId((current) =>
+                          current === table.id ? null : table.id,
+                        )
+                      }
+                    >
+                      {isExpanded ? "Скрыть детали" : "Управление"}
+                    </button>
+
+                    {table.status === "open" && !table.active_hand ? (
                       <button
-                        key={command}
                         className="ghost-button"
                         type="button"
+                        disabled={busy}
                         onClick={() =>
-                          void operatorBlindScheduleCommand(
-                            table.id,
-                            command,
-                            operatorKey,
-                          ).then(() => load())
+                          void runTableAction(table.id, () =>
+                            operatorSetTableStatus(
+                              table.id,
+                              "pause",
+                              operatorKey,
+                            ),
+                          )
                         }
                       >
-                        {command}
+                        Пауза
                       </button>
-                    ))}
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={() =>
-                        void operatorWindowControl(
-                          table.id,
-                          "rebuy",
-                          !Boolean(table.rebuy_window_open),
-                          operatorKey,
-                        ).then(() => load())
-                      }
-                    >
-                      Rebuy {table.rebuy_window_open ? "close" : "open"}
-                    </button>
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={() =>
-                        void operatorWindowControl(
-                          table.id,
-                          "addon",
-                          !Boolean(table.addon_window_open),
-                          operatorKey,
-                        ).then(() => load())
-                      }
-                    >
-                      Add-on {table.addon_window_open ? "close" : "open"}
-                    </button>
+                    ) : table.status === "paused" || table.status === "closed" ? (
+                      <button
+                        className="action-button action-primary"
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void runTableAction(table.id, () =>
+                            operatorSetTableStatus(
+                              table.id,
+                              "resume",
+                              operatorKey,
+                            ),
+                          )
+                        }
+                      >
+                        Открыть стол
+                      </button>
+                    ) : null}
+
+                    {canStart ? (
+                      <button
+                        className="action-button action-primary"
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void runTableAction(table.id, () =>
+                            operatorStartHand(table.id, operatorKey),
+                          )
+                        }
+                      >
+                        Начать раздачу
+                      </button>
+                    ) : null}
                   </div>
-                  </>
-                ) : null}
-                <div className="operator-actions">
-                  {table.table_mode === "cash" ? <button
-                    className="action-button action-primary"
-                    type="button"
-                    disabled={table.status !== "open" || startingHand !== null}
-                    onClick={() => {
-                      setStartingHand(table.id);
-                      setError(null);
-                      void operatorStartHand(table.id, operatorKey)
-                        .then(() => load())
-                        .catch((cause) => setError(cause instanceof Error ? cause.message : "Не удалось начать раздачу"))
-                        .finally(() => setStartingHand(null));
-                    }}
-                  >{startingHand === table.id ? "Запуск…" : "Начать раздачу"}</button> : null}
-                  <button
-                    className="ghost-button action-danger"
-                    type="button"
-                    disabled={table.status === "closed"}
-                    onClick={() =>
-                      void operatorCloseTable(table.id, operatorKey).then(() =>
-                        load(),
-                      )
-                    }
-                  >
-                    Close table
-                  </button>
-                </div>
-                {table.winner_player_id ? (
-                  <span>Winner: {table.winner_player_id}</span>
-                ) : null}
-              </article>
-            ))}
+
+                  {isExpanded ? (
+                    <section className="manager-table-details">
+                      <div className="manager-player-list">
+                        <h3>Игроки</h3>
+                        {table.seats.length === 0 ? (
+                          <p>За столом пока никого нет.</p>
+                        ) : (
+                          table.seats
+                            .slice()
+                            .sort((a, b) => a.seat_no - b.seat_no)
+                            .map((seat) => (
+                              <article key={seat.player_id}>
+                                <div className="manager-player-main">
+                                  {seat.photo_url ? (
+                                    <img
+                                      src={seat.photo_url}
+                                      alt=""
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  ) : (
+                                    <span className="manager-player-avatar">
+                                      {(seat.display_name?.[0] ?? "P").toUpperCase()}
+                                    </span>
+                                  )}
+                                  <div>
+                                    <strong>
+                                      Seat {seat.seat_no} ·{" "}
+                                      {seat.display_name ?? "Игрок"}
+                                    </strong>
+                                    <small>{seat.player_id}</small>
+                                  </div>
+                                </div>
+                                <div className="manager-player-stack">
+                                  <strong>{seat.stack.toLocaleString()}</strong>
+                                  <span>
+                                    {seat.status === "sitting_out"
+                                      ? "Sit out"
+                                      : seat.status === "sitting_out_next"
+                                        ? "Sit out next"
+                                        : seat.status === "sitting_in_next"
+                                          ? "Returning"
+                                          : "Playing"}
+                                  </span>
+                                </div>
+                              </article>
+                            ))
+                        )}
+                      </div>
+
+                      {table.active_hand ? (
+                        <div className="manager-live-hand">
+                          <span>HAND</span>
+                          <strong>
+                            {String(table.active_hand.street).toUpperCase()} ·
+                            Pot {table.active_hand.pot.toLocaleString()}
+                          </strong>
+                          <small>
+                            Ход: Seat {table.active_hand.action_seat ?? "—"}
+                          </small>
+                        </div>
+                      ) : null}
+
+                      <div className="manager-danger-zone">
+                        <button
+                          className="ghost-button action-danger"
+                          type="button"
+                          disabled={busy || Boolean(table.active_hand) || table.status === "closed"}
+                          onClick={() =>
+                            void runTableAction(table.id, () =>
+                              operatorCloseTable(table.id, operatorKey),
+                            )
+                          }
+                        >
+                          Закрыть стол
+                        </button>
+                      </div>
+                    </section>
+                  ) : null}
+                </article>
+              );
+            })}
           </section>
 
-          <section className="operator-audit">
-            <h3>Audit</h3>
-            {audit.slice(0, 20).map((entry) => (
-              <article key={entry.id}>
-                <strong>{entry.action}</strong>
-                <span>{entry.table_id ?? "global"} · {entry.created_at}</span>
-              </article>
-            ))}
-          </section>
+          <details className="manager-admin-tools">
+            <summary>Баланс игроков и audit</summary>
+
+            <section className="operator-balance-control">
+              <input
+                placeholder="User ID"
+                value={balanceUser}
+                onChange={(event) => setBalanceUser(event.target.value)}
+              />
+              <input
+                type="number"
+                placeholder="Δ chips"
+                value={balanceDelta}
+                onChange={(event) =>
+                  setBalanceDelta(Number(event.target.value))
+                }
+              />
+              <button
+                className="action-button action-primary"
+                type="button"
+                disabled={!balanceUser || balanceDelta === 0}
+                onClick={() =>
+                  void operatorAdjustBalance(
+                    balanceUser,
+                    balanceDelta,
+                    operatorKey,
+                  )
+                    .then(() => load())
+                    .catch((cause) =>
+                      setError(
+                        cause instanceof Error
+                          ? cause.message
+                          : "Balance adjustment failed",
+                      ),
+                    )
+                }
+              >
+                Изменить баланс
+              </button>
+            </section>
+
+            <section className="operator-audit">
+              <h3>Последние действия</h3>
+              {audit.slice(0, 12).map((entry) => (
+                <article key={entry.id}>
+                  <strong>{entry.action}</strong>
+                  <span>
+                    {entry.table_id ?? "global"} · {entry.created_at}
+                  </span>
+                </article>
+              ))}
+            </section>
+          </details>
         </>
       ) : null}
     </main>
   );
 }
-
 
 function OfflineHome() {
   return (
