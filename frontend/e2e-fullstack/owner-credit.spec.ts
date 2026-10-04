@@ -47,7 +47,7 @@ test("owner credits test chips and filters tables safely @guardian-owner-credit"
 
   await measureJourney("owner-credit", "quick-credit", async () => {
     await addFive.click();
-    await expect(credit.getByRole("status")).toContainText("5000");
+    await expect(credit.getByRole("status")).toContainText(/5[,\\s]?000/);
   });
 
   const balance = await request.get(`${API}/api/v1/me/balance`, {
