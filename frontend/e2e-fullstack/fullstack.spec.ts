@@ -743,3 +743,283 @@ test("cash top-up requested during a hand applies only after settlement", async 
 
   await context.close();
 });
+
+
+test("cash MVP acceptance: showdown, reconnect, top-up, sit-out, return and exit", async ({ browser, request }) => {
+  test.setTimeout(90_000);
+
+  const token = await createOperatorToken(request);
+  const headers = { "X-Operator-Key": token };
+  const created = await request.post(`${API}/api/v1/operator/tables`, {
+    headers,
+    data: { name: "Cash MVP acceptance" },
+  });
+  expect(created.ok()).toBeTruthy();
+  const table = await created.json();
+
+  const players: Array<{
+    user: string;
+    sessionId: string;
+    seat: number;
+  }> = [];
+
+  for (const seat of [1, 2]) {
+    const user = `acceptance-player-${seat}`;
+    expect((await request.post(`${API}/api/v1/operator/balance`, {
+      headers,
+      data: { user_id: user, delta: 30_000 },
+    })).ok()).toBeTruthy();
+
+    const session = await (await request.post(`${API}/api/v1/sessions`, {
+      data: {
+        user_id: user,
+        provider: "test",
+        data: { telegram_user: { first_name: `Player ${seat}` } },
+      },
+    })).json();
+
+    expect((await request.post(`${API}/api/v1/tables/${table.id}/join-auth`, {
+      headers: {
+        "X-Session-ID": session.session_id,
+        "Idempotency-Key": `acceptance-join-${seat}`,
+      },
+      data: { seat_no: seat, stack: 10_000 },
+    })).ok()).toBeTruthy();
+
+    players.push({
+      user,
+      sessionId: session.session_id,
+      seat,
+    });
+  }
+
+  const readState = async () =>
+    (await (await request.get(`${API}/api/v1/tables/${table.id}`)).json());
+
+  const playerForSeat = (seatNo: number) => {
+    const player = players.find((item) => item.seat === seatNo);
+    if (!player) throw new Error(`No session for seat ${seatNo}`);
+    return player;
+  };
+
+  let actionCounter = 0;
+  const actCurrent = async (
+    action: "fold" | "check" | "call" | "bet" | "raise",
+    amount?: number,
+  ) => {
+    const state = await readState();
+    expect(state.active_hand).not.toBeNull();
+    const actor = playerForSeat(state.active_hand.action_seat);
+    const response = await request.post(
+      `${API}/api/v1/tables/${table.id}/action-auth`,
+      {
+        headers: {
+          "X-Session-ID": actor.sessionId,
+          "Idempotency-Key": `acceptance-action-${++actionCounter}`,
+        },
+        data: {
+          action,
+          expected_action_no: Number(
+            state.active_hand.state.action_no ?? 0,
+          ),
+          ...(amount === undefined ? {} : { amount }),
+        },
+      },
+    );
+    expect(response.ok()).toBeTruthy();
+    return response.json();
+  };
+
+  await expect.poll(async () => {
+    const state = await readState();
+    return state.active_hand?.street ?? null;
+  }, { timeout: 10_000 }).toBe("preflop");
+
+  const firstHand = await readState();
+  const firstHandId = firstHand.active_hand.hand_id;
+  expect(firstHand.active_hand.pot).toBe(150);
+
+  // Preflop: SB/button raises to 300, BB calls.
+  await actCurrent("raise", 300);
+  let state = await actCurrent("call");
+  expect(state.active_hand.street).toBe("flop");
+  expect(state.active_hand.pot).toBe(600);
+  expect(state.active_hand.state.board).toHaveLength(3);
+
+  // Flop: check, bet 200, call.
+  await actCurrent("check");
+  await actCurrent("bet", 200);
+  state = await actCurrent("call");
+  expect(state.active_hand.street).toBe("turn");
+  expect(state.active_hand.pot).toBe(1_000);
+  expect(state.active_hand.state.board).toHaveLength(4);
+
+  // Turn: check/check.
+  await actCurrent("check");
+  state = await actCurrent("check");
+  expect(state.active_hand.street).toBe("river");
+  expect(state.active_hand.pot).toBe(1_000);
+  expect(state.active_hand.state.board).toHaveLength(5);
+
+  // River: bet 300/call -> automatic showdown settlement.
+  await actCurrent("bet", 300);
+  state = await actCurrent("call");
+  expect(state.active_hand).toBeNull();
+
+  const history = await (await request.get(
+    `${API}/api/v1/tables/${table.id}/hands?limit=5`,
+  )).json();
+  expect(history[0].hand_id).toBe(firstHandId);
+  expect(history[0].pot).toBe(1_600);
+  expect(
+    Object.values(history[0].final_stacks as Record<string, number>)
+      .reduce((sum, value) => sum + Number(value), 0),
+  ).toBe(20_000);
+
+  // Automatic next hand.
+  await expect.poll(async () => {
+    const next = await readState();
+    return next.active_hand?.hand_id ?? null;
+  }, { timeout: 10_000 }).not.toBeNull();
+
+  const secondHand = await readState();
+  expect(secondHand.active_hand.hand_id).not.toBe(firstHandId);
+  expect(secondHand.status).toBe("playing");
+  expect(secondHand.active_hand.pot).toBe(150);
+
+  // Private cards survive a real client reconnect.
+  const reconnectPlayer = players[0];
+  const openPlayerTable = async () => {
+    const context = await browser.newContext();
+    await context.addInitScript((sessionId) => {
+      localStorage.setItem("inarena_session_id", sessionId);
+    }, reconnectPlayer.sessionId);
+    const page = await context.newPage();
+    await page.goto("/");
+    await page.getByRole("button", { name: "ONLINE", exact: false }).click();
+    await page
+      .locator(".lobby-card")
+      .filter({ hasText: "Cash MVP acceptance" })
+      .getByRole("button", { name: "Открыть" })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Cash MVP acceptance" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Ваши карты")).toBeVisible();
+    return context;
+  };
+
+  const firstContext = await openPlayerTable();
+  await firstContext.close();
+  const secondContext = await openPlayerTable();
+  await secondContext.close();
+
+  const privateView = await (await request.get(
+    `${API}/api/v1/tables/${table.id}/view`,
+    { headers: { "X-Session-ID": reconnectPlayer.sessionId } },
+  )).json();
+  expect(privateView.hole_cards).toHaveLength(2);
+
+  // Queue a top-up for the current actor, sit out after this hand, then fold.
+  const current = await readState();
+  const topUpActor = playerForSeat(current.active_hand.action_seat);
+  const stackBeforeTopUp = current.seats.find(
+    (seat: any) => seat.player_id === topUpActor.user,
+  ).stack;
+
+  const topUp = await request.post(
+    `${API}/api/v1/tables/${table.id}/top-up-auth`,
+    {
+      headers: {
+        "X-Session-ID": topUpActor.sessionId,
+        "Idempotency-Key": "acceptance-topup",
+      },
+      data: { amount: 1_000 },
+    },
+  );
+  expect(topUp.ok()).toBeTruthy();
+  const queued = await topUp.json();
+  const queuedSeat = queued.seats.find(
+    (seat: any) => seat.player_id === topUpActor.user,
+  );
+  expect(queuedSeat.stack).toBe(stackBeforeTopUp);
+  expect(queuedSeat.pending_top_up).toBe(1_000);
+
+  const sitOut = await request.post(
+    `${API}/api/v1/tables/${table.id}/sit-out-auth`,
+    {
+      headers: {
+        "X-Session-ID": topUpActor.sessionId,
+        "Idempotency-Key": "acceptance-sitout",
+      },
+    },
+  );
+  expect(sitOut.ok()).toBeTruthy();
+
+  state = await actCurrent("fold");
+  const afterFoldSeat = state.seats.find(
+    (seat: any) => seat.player_id === topUpActor.user,
+  );
+  expect(state.active_hand).toBeNull();
+  expect(afterFoldSeat.status).toBe("sitting_out");
+  expect(afterFoldSeat.pending_top_up).toBe(0);
+  expect(afterFoldSeat.stack).toBe(stackBeforeTopUp + 1_000);
+
+  // Return to the game and verify the next hand starts again.
+  const sitIn = await request.post(
+    `${API}/api/v1/tables/${table.id}/sit-in-auth`,
+    {
+      headers: {
+        "X-Session-ID": topUpActor.sessionId,
+        "Idempotency-Key": "acceptance-sitin",
+      },
+    },
+  );
+  expect(sitIn.ok()).toBeTruthy();
+
+  await expect.poll(async () => {
+    const next = await readState();
+    return next.active_hand?.hand_id ?? null;
+  }, { timeout: 10_000 }).not.toBeNull();
+
+  const thirdHand = await readState();
+  expect(thirdHand.status).toBe("playing");
+
+  // Current actor sits out, folds, then leaves the cash table cleanly.
+  const exitPlayer = playerForSeat(thirdHand.active_hand.action_seat);
+  expect((await request.post(
+    `${API}/api/v1/tables/${table.id}/sit-out-auth`,
+    {
+      headers: {
+        "X-Session-ID": exitPlayer.sessionId,
+        "Idempotency-Key": "acceptance-exit-sitout",
+      },
+    },
+  )).ok()).toBeTruthy();
+
+  state = await actCurrent("fold");
+  expect(state.active_hand).toBeNull();
+  expect(
+    state.seats.find((seat: any) => seat.player_id === exitPlayer.user)?.status,
+  ).toBe("sitting_out");
+
+  const stand = await request.post(
+    `${API}/api/v1/tables/${table.id}/stand-auth`,
+    {
+      headers: {
+        "X-Session-ID": exitPlayer.sessionId,
+        "Idempotency-Key": "acceptance-stand",
+      },
+    },
+  );
+  expect(stand.ok()).toBeTruthy();
+  const finalState = await stand.json();
+  expect(
+    finalState.seats.some(
+      (seat: any) => seat.player_id === exitPlayer.user,
+    ),
+  ).toBe(false);
+  expect(finalState.seats).toHaveLength(1);
+  expect(finalState.active_hand).toBeNull();
+  expect(finalState.status).toBe("open");
+});
