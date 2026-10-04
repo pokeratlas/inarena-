@@ -3006,7 +3006,7 @@ function PlayerProfile({ session }: { session: AuthSession | null }) {
       <section className="profile-balance-card" aria-label="Баланс игрока">
         <div>
           <span>Доступно</span>
-          <strong>{balance ? balance.balance.toLocaleString() + " chips" : "—"}</strong>
+          <strong>{balance ? balance.balance + " chips" : "—"}</strong>
         </div>
         <span className="profile-balance-mark">IN</span>
       </section>
