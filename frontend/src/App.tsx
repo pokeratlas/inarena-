@@ -893,7 +893,7 @@ function OnlineTable({
     });
 
   return (
-    <section className="table-screen table-screen-redesign" aria-label="Игровой стол">
+    <section className="table-screen table-screen-redesign table-screen-v2" aria-label="Игровой стол">
       <header className="table-header table-header-redesign">
         <button className="table-back" type="button" onClick={onBack}>
           ← Лобби
