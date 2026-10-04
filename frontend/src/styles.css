@@ -2730,11 +2730,11 @@ body,
 
 /* 6-max */
 .opponent-layer[data-count="5"] .opponent-seat-0 {
-  left: 9%;
+  left: 16%;
   top: 58%;
 }
 .opponent-layer[data-count="5"] .opponent-seat-1 {
-  left: 14%;
+  left: 18%;
   top: 24%;
 }
 .opponent-layer[data-count="5"] .opponent-seat-2 {
@@ -2742,37 +2742,37 @@ body,
   top: 7%;
 }
 .opponent-layer[data-count="5"] .opponent-seat-3 {
-  left: 86%;
+  left: 82%;
   top: 24%;
 }
 .opponent-layer[data-count="5"] .opponent-seat-4 {
-  left: 91%;
+  left: 84%;
   top: 58%;
 }
 
 /* Fixed INARENA 7-max: hero bottom + six opponents around the remaining arc. */
 .opponent-layer[data-count="6"] .opponent-seat-0 {
-  left: 9%;
+  left: 16%;
   top: 62%;
 }
 .opponent-layer[data-count="6"] .opponent-seat-1 {
-  left: 10%;
+  left: 17%;
   top: 27%;
 }
 .opponent-layer[data-count="6"] .opponent-seat-2 {
-  left: 35%;
+  left: 36%;
   top: 7%;
 }
 .opponent-layer[data-count="6"] .opponent-seat-3 {
-  left: 65%;
+  left: 64%;
   top: 7%;
 }
 .opponent-layer[data-count="6"] .opponent-seat-4 {
-  left: 90%;
+  left: 83%;
   top: 27%;
 }
 .opponent-layer[data-count="6"] .opponent-seat-5 {
-  left: 91%;
+  left: 84%;
   top: 62%;
 }
 
@@ -3019,16 +3019,6 @@ body,
 
   .opponent-seat {
     width: 96px;
-  }
-
-  .opponent-layer[data-count="6"] .opponent-seat-0,
-  .opponent-layer[data-count="6"] .opponent-seat-1 {
-    left: 8%;
-  }
-
-  .opponent-layer[data-count="6"] .opponent-seat-4,
-  .opponent-layer[data-count="6"] .opponent-seat-5 {
-    left: 92%;
   }
 
   .table-screen-v2 .hero-player-pod {
