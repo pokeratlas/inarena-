@@ -846,12 +846,13 @@ body,
 }
 
 .table-header-redesign {
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
 }
 
 .table-header-redesign h2 {
+  max-width: 100%;
   font-size: 22px;
   line-height: 1.05;
   white-space: nowrap;
@@ -860,6 +861,7 @@ body,
 }
 
 .table-back {
+  min-height: 44px;
   border: 0;
   background: transparent;
   color: #9fb1d0;
@@ -2296,3 +2298,8 @@ body,
 .table-chat form { display: flex; gap: 8px; align-items: end; }
 .table-chat label { flex: 1; min-width: 0; }
 .table-chat input { display: block; width: 100%; min-height: 44px; box-sizing: border-box; }
+
+.return-to-table { padding: 16px; margin: 12px 0; border: 1px solid #547b64; border-radius: 14px; }
+.return-to-table button { min-height: 44px; }
+.return-to-table p { line-height: 1.5; }
+.table-connection-state { padding: 10px 12px; border-radius: 10px; background: #403421; color: #ffdf9b; }

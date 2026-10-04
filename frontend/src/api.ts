@@ -27,8 +27,8 @@ export async function listTables(): Promise<TableState[]> {
   return response.json();
 }
 
-export async function getTable(tableId: string): Promise<TableState> {
-  const response = await fetch(`${API_BASE}/api/v1/tables/${tableId}`);
+export async function getTable(tableId: string, signal?: AbortSignal): Promise<TableState> {
+  const response = await fetch(`${API_BASE}/api/v1/tables/${tableId}`, { signal });
   if (!response.ok) throw new Error("Unable to load table");
   return response.json();
 }
