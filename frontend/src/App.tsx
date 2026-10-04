@@ -2120,7 +2120,7 @@ function OperatorDashboardView() {
             </article>
           </section>
 
-          <details className="manager-create" open={tables.length === 0}>
+          <details className="manager-create" open>
             <summary>+ Создать cash-стол</summary>
             <form
               className="manager-create-form"
