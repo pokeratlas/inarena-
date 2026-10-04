@@ -355,6 +355,75 @@ export async function revokeOperatorSession(
 }
 
 
+export async function operatorConfigureCashTable(
+  tableId: string,
+  operatorKey: string,
+  config: {
+    smallBlind: number;
+    bigBlind: number;
+    cashBuyinMin: number;
+    cashBuyinMax: number;
+  },
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/operator/tables/${tableId}/configure`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Operator-Key": operatorKey,
+      },
+      body: JSON.stringify({
+        table_mode: "cash",
+        starting_stack: Math.max(
+          config.bigBlind * 100,
+          config.cashBuyinMin,
+        ),
+        small_blind: config.smallBlind,
+        big_blind: config.bigBlind,
+        blind_schedule: [],
+        cash_buyin_min: config.cashBuyinMin,
+        cash_buyin_max: config.cashBuyinMax,
+        rebuy_enabled: false,
+        rebuy_stack: 0,
+        rebuy_max_per_player: 0,
+        addon_enabled: false,
+        addon_stack: 0,
+      }),
+    },
+  );
+  if (response.status === 401) {
+    throw new Error("Operator session expired or unauthorized");
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Не удалось настроить стол");
+  }
+  return response.json();
+}
+
+export async function operatorSetTableStatus(
+  tableId: string,
+  command: "pause" | "resume",
+  operatorKey: string,
+): Promise<TableState> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/operator/tables/${tableId}/${command}`,
+    {
+      method: "POST",
+      headers: { "X-Operator-Key": operatorKey },
+    },
+  );
+  if (response.status === 401) {
+    throw new Error("Operator session expired or unauthorized");
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Не удалось изменить статус стола");
+  }
+  return response.json();
+}
+
 export async function operatorCreateTable(name: string, operatorKey: string): Promise<TableState> {
   const response = await fetch(`${API_BASE}/api/v1/operator/tables`, {
     method: "POST",

@@ -14,8 +14,8 @@ test("player shell switches offline and online modes", async ({ page }) => {
 test("operator route renders protected dashboard login", async ({ page }) => {
   await page.goto("/?operator=1");
 
-  await expect(page.getByText("INARENA OPERATOR")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByText("INARENA OWNER")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Table Manager" })).toBeVisible();
   await expect(page.getByPlaceholder("Bootstrap operator key")).toBeVisible();
   await expect(page.getByRole("button", { name: "Получить сессию" })).toBeVisible();
 });
