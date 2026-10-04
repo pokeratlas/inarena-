@@ -31,7 +31,12 @@ Required:
 - background/foreground reconnect;
 - network handoff Wi-Fi <-> cellular.
 
-Status: NOT YET VERIFIED ON REAL DEVICES.
+Status: IPHONE PASS; ANDROID PENDING.
+
+A controlled Telegram Mini App run on a real iPhone was reported PASS on
+2026-10-05 after the fast-bootstrap fix in RC1 `0c4067fd`. No blocking auth,
+gameplay, reconnect, chat, chip-accounting or layout issue was reported.
+Android still requires a real-device run before the full device matrix is complete.
 
 ### 3. Backup / restore drill on actual production-like PostgreSQL
 Run:
