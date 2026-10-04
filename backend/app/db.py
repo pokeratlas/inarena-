@@ -12,7 +12,7 @@ from .migration_runner import migrate_postgres
 from .postgres_schema import POSTGRES_SCHEMA_VERSION
 
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 _postgres_pool = None
 _postgres_pool_lock = threading.Lock()
@@ -638,6 +638,24 @@ def _migration_15(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_16(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS cash_pending_topups (
+            table_id TEXT NOT NULL REFERENCES runtime_tables(id) ON DELETE CASCADE,
+            player_id TEXT NOT NULL,
+            amount INTEGER NOT NULL CHECK(amount > 0),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (table_id, player_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_cash_pending_topups_table
+        ON cash_pending_topups(table_id);
+        """
+    )
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
@@ -654,6 +672,7 @@ MIGRATIONS = {
     13: _migration_13,
     14: _migration_14,
     15: _migration_15,
+    16: _migration_16,
 }
 
 
