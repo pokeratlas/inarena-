@@ -3,11 +3,18 @@
 ## Blocking before invited-user beta
 
 ### 1. Public staging / preview hosting
-Status: BLOCKED EXTERNALLY.
+Status: READY FOR CONTROLLED DEVICE TESTING.
 
-Vercel connection was rechecked on 2026-10-02 and still exposes no accessible team/account.
+Public staging is available on Render:
+- frontend: `https://inarena-frontend.onrender.com`;
+- backend: `https://inarena-backend.onrender.com`;
+- source branch: `release/closed-beta-rc1`.
 
-The application is now provider-neutral:
+Both services were verified live from the same RC1 commit on 2026-10-05.
+Backend auto-deploy is enabled. Frontend auto-deploy is disabled, so every RC
+promotion must include an explicit frontend staging deploy before device testing.
+
+The application remains provider-neutral:
 - Docker production backend;
 - PostgreSQL 16;
 - Redis 7;
@@ -15,8 +22,6 @@ The application is now provider-neutral:
 - HTTPS/CORS contract;
 - staging smoke/full-stack E2E;
 - provider-neutral requirements in `docs/HOSTING_REQUIREMENTS.md`.
-
-A Render integration is available as an alternative deployment path once connected.
 
 ### 2. Real Telegram device dry run
 Required:
