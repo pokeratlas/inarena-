@@ -6,13 +6,13 @@ No AI service, production credentials, new database, telemetry, or deployment st
 ## Required journeys
 
 Guardian now treats complete player and owner workflows as the release contract.
-Desktop covers 20 journeys: owner session/recovery/create/live/lifecycle, authenticated
+Desktop covers 21 journeys: owner session/recovery/create/live/lifecycle, authenticated
 join/profile/identity, cash autostart/watchdog/leave/sit-out/top-up/showdown acceptance,
-fixed seven-max, private table chat, safe return-to-table, Owner Quick Credit, and active-hand network recovery.
+fixed seven-max, private table chat, safe return-to-table, Owner Quick Credit, active-hand network recovery, and the Table V2 seven-max visual contract.
 
-Mobile Chromium (iPhone 13 viewport/touch emulation) repeats eight critical journeys:
+Mobile Chromium (iPhone 13 viewport/touch emulation) repeats nine critical journeys:
 join, owner creation, live owner view, owner lifecycle, table chat, return-to-table,
-Owner Quick Credit, and active-hand network recovery. This remains browser emulation rather than a real Telegram
+Owner Quick Credit, active-hand network recovery, and Table V2 layout. This remains browser emulation rather than a real Telegram
 iPhone/WebKit dry run; real-device validation is a separate closed-beta requirement.
 
 API calls prepare disposable test users/tables/chips. User-visible actions are still
@@ -20,7 +20,7 @@ performed through the UI. Telegram HMAC validation remains in backend tests.
 
 ## Gate policy
 
-- READY: all 28 required project/journey pairs pass on their first attempt.
+- READY: all 30 required project/journey pairs pass on their first attempt.
 - WARNING: all pass, but at least one needs a retry. Investigate and rerun cleanly.
 - BLOCKED: failed, timed out, skipped, missing, duplicated or incomplete journey,
   missing/invalid report, runner/setup error, missing/invalid required measurement,
