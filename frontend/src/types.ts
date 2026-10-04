@@ -5,6 +5,7 @@ export interface TableSeat {
   player_id: string;
   display_name: string | null;
   photo_url: string | null;
+  pending_top_up: number;
   stack: number;
   status: string;
   rebuy_count: number;
