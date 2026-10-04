@@ -2977,7 +2977,7 @@ function PlayerProfile({ session }: { session: AuthSession | null }) {
           className="profile-refresh"
           type="button"
           disabled={loading}
-          aria-label="Обновить профиль"
+          aria-label="Обновить баланс"
           onClick={() => setReloadKey((value) => value + 1)}
         >
           ↻
@@ -3006,8 +3006,7 @@ function PlayerProfile({ session }: { session: AuthSession | null }) {
       <section className="profile-balance-card" aria-label="Баланс игрока">
         <div>
           <span>Доступно</span>
-          <strong>{balance ? balance.balance.toLocaleString() : "—"}</strong>
-          <small>chips</small>
+          <strong>{balance ? balance.balance.toLocaleString() + " chips" : "—"}</strong>
         </div>
         <span className="profile-balance-mark">IN</span>
       </section>
@@ -3051,7 +3050,7 @@ function PlayerProfile({ session }: { session: AuthSession | null }) {
             }
           }}
         >
-          Копировать
+          Скопировать ID
         </button>
       </section>
       {copyStatus ? <p className="profile-inline-status" role="status">{copyStatus}</p> : null}
