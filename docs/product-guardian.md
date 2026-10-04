@@ -6,13 +6,13 @@ No AI service, production credentials, new database, telemetry, or deployment st
 ## Required journeys
 
 Guardian now treats complete player and owner workflows as the release contract.
-Desktop covers 19 journeys: owner session/recovery/create/live/lifecycle, authenticated
+Desktop covers 20 journeys: owner session/recovery/create/live/lifecycle, authenticated
 join/profile/identity, cash autostart/watchdog/leave/sit-out/top-up/showdown acceptance,
-fixed seven-max, private table chat, safe return-to-table, and Owner Quick Credit.
+fixed seven-max, private table chat, safe return-to-table, Owner Quick Credit, and active-hand network recovery.
 
-Mobile Chromium (iPhone 13 viewport/touch emulation) repeats seven critical journeys:
+Mobile Chromium (iPhone 13 viewport/touch emulation) repeats eight critical journeys:
 join, owner creation, live owner view, owner lifecycle, table chat, return-to-table,
-and Owner Quick Credit. This remains browser emulation rather than a real Telegram
+Owner Quick Credit, and active-hand network recovery. This remains browser emulation rather than a real Telegram
 iPhone/WebKit dry run; real-device validation is a separate closed-beta requirement.
 
 API calls prepare disposable test users/tables/chips. User-visible actions are still
@@ -20,7 +20,7 @@ performed through the UI. Telegram HMAC validation remains in backend tests.
 
 ## Gate policy
 
-- READY: all 26 required project/journey pairs pass on their first attempt.
+- READY: all 28 required project/journey pairs pass on their first attempt.
 - WARNING: all pass, but at least one needs a retry. Investigate and rerun cleanly.
 - BLOCKED: failed, timed out, skipped, missing, duplicated or incomplete journey,
   missing/invalid report, runner/setup error, missing/invalid required measurement,
@@ -31,7 +31,7 @@ performed through the UI. Telegram HMAC validation remains in backend tests.
 `frontend/e2e-fullstack/guardian-budgets.json` is the shared budget source for
 Playwright and the release report. Current development/CI ceilings include:
 lobby ready 5s, selected buy-in to seated 8s, owner create 5s, Fold to actionable
-next hand 10s, chat delivery 5s, return-to-table 8s, and Owner Quick Credit 5s.
+next hand 10s, chat delivery 5s, return-to-table 8s, Owner Quick Credit 5s, and active-hand reconnect 8s.
 These are development ceilings, not production latency SLOs.
 
 Critical controls must be visible, enabled, at least 36px in both dimensions, and
@@ -42,7 +42,10 @@ A stricter 44px design target remains a future UI hardening step.
 Profile Copy ID is verified with real clipboard content and denied-clipboard recovery.
 Owner Quick Credit uses that ID with the existing audited balance mutation and keeps
 manual delta adjustment available for advanced corrections. Chat/return journeys
-verify reconnect behavior and preserve membership/participation semantics.
+verify reconnect behavior and preserve membership/participation semantics. Network Recovery
+forces an active-hand offline gap, confirms action controls lock while disconnected,
+checks request-ID correlation for the server-side mutation, and verifies exactly one fold
+after the client catches up to the next hand.
 
 Only READY exits zero. WARNING and BLOCKED stop automatic release. The JSON/Markdown
 report records the exact checked-out SHA, every journey, timing measurements and
