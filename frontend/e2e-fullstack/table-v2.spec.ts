@@ -109,5 +109,5 @@ test("Table V2 keeps hero, opponents and board readable on mobile and desktop @g
   const info = page.getByRole("button", { name: "Информация о столе" });
   await expectUsableControls(page, [info]);
   await info.click();
-  await expect(page.getByLabel("Информация о столе")).toContainText("7-MAX");
+  await expect(page.getByRole("region", { name: "Информация о столе" })).toContainText("7-MAX");
 });
