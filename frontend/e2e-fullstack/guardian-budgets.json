@@ -11,5 +11,8 @@
   },
   "table-chat": {
     "chat-message-delivered": 5000
+  },
+  "return": {
+    "return-to-table": 8000
   }
 }
