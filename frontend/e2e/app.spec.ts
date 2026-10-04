@@ -130,21 +130,26 @@ test("Telegram shell calls ready before slow session refresh and uses one restor
     });
   });
 
+  await page.route("**/telegram-web-app.js?63", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/javascript",
+      body: `
+        window.__telegramReadyCalls = 0;
+        window.__telegramExpandCalls = 0;
+        window.Telegram = {
+          WebApp: {
+            initData: "telegram-init-data",
+            ready: () => { window.__telegramReadyCalls += 1; },
+            expand: () => { window.__telegramExpandCalls += 1; }
+          }
+        };
+      `,
+    });
+  });
+
   await page.addInitScript(() => {
     localStorage.setItem("inarena_session_id", "session-fast-bootstrap");
-    (window as any).__telegramReadyCalls = 0;
-    (window as any).__telegramExpandCalls = 0;
-    (window as any).Telegram = {
-      WebApp: {
-        initData: "telegram-init-data",
-        ready: () => {
-          (window as any).__telegramReadyCalls += 1;
-        },
-        expand: () => {
-          (window as any).__telegramExpandCalls += 1;
-        },
-      },
-    };
   });
 
   await page.goto("/");
