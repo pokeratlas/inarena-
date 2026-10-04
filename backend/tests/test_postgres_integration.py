@@ -67,6 +67,13 @@ def test_postgres_runtime_smoke(monkeypatch):
     assert state["id"] == table_id
     assert len(state["seats"]) == 2
 
+    from app.chat import ChatMessage, history, send
+    session = service.create_session(f"p1-{suffix}", "test")
+    message = ChatMessage(text="Postgres chat", client_message_id="pg-first")
+    sent = send(table_id, message, session["session_id"])
+    assert send(table_id, message, session["session_id"]) == sent
+    assert history(table_id, session["session_id"]) == [sent]
+
     final_stats = db.postgres_pool_stats()
     assert final_stats is not None
     assert final_stats["pool_size"] <= final_stats["pool_max"]
@@ -122,15 +129,17 @@ def test_postgres_schema_metadata_upgrades(monkeypatch):
         conn = db.connect()
         try:
             conn.execute_raw("DROP TABLE IF EXISTS cash_pending_topups")
+            conn.execute_raw("DROP TABLE IF EXISTS table_chat")
+            conn.execute_raw("DROP TABLE IF EXISTS chat_senders")
             conn.execute_raw(
                 "UPDATE inarena_schema_meta SET version = %s",
-                (db.SCHEMA_VERSION - 1,),
+                (15,),
             )
             conn.commit()
         finally:
             conn.close()
 
-        assert db.schema_version() == db.SCHEMA_VERSION - 1
+        assert db.schema_version() == 15
         db.ensure_schema()
         assert db.schema_version() == db.SCHEMA_VERSION
 
@@ -142,6 +151,8 @@ def test_postgres_schema_metadata_upgrades(monkeypatch):
                 """
             ).fetchone()
             assert exists["relation"] == "cash_pending_topups"
+            assert conn.execute_raw("SELECT to_regclass('public.table_chat') AS relation").fetchone()["relation"] == "table_chat"
+            assert conn.execute_raw("SELECT to_regclass('public.chat_senders') AS relation").fetchone()["relation"] == "chat_senders"
         finally:
             conn.close()
     finally:

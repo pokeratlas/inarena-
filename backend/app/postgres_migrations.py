@@ -37,6 +37,26 @@ POSTGRES_MIGRATIONS: dict[int, list[str]] = {
         ON operator_sessions(expires_at_epoch)
         """,
     ],
+    17: [
+        """
+    CREATE TABLE IF NOT EXISTS table_chat (
+        sequence BIGSERIAL PRIMARY KEY,
+        table_id TEXT NOT NULL REFERENCES runtime_tables(id) ON DELETE CASCADE,
+        player_id TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        text TEXT NOT NULL CHECK(length(text) BETWEEN 1 AND 500),
+        client_message_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(table_id, player_id, client_message_id)
+    )
+        """,
+        """
+    CREATE INDEX IF NOT EXISTS idx_table_chat_history ON table_chat(table_id, sequence)
+        """,
+        """
+    CREATE TABLE IF NOT EXISTS chat_senders (player_id TEXT PRIMARY KEY, last_sent DOUBLE PRECISION NOT NULL)
+        """,
+    ],
     16: [
         """
         CREATE TABLE IF NOT EXISTS cash_pending_topups (
