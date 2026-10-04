@@ -2289,3 +2289,10 @@ body,
     gap: 7px;
   }
 }
+
+.table-chat { margin: 12px 0; padding: 12px; border: 1px solid #394349; border-radius: 12px; }
+.table-chat button { min-height: 44px; min-width: 44px; }
+.table-chat-log { max-height: 180px; overflow-y: auto; overflow-wrap: anywhere; }
+.table-chat form { display: flex; gap: 8px; align-items: end; }
+.table-chat label { flex: 1; min-width: 0; }
+.table-chat input { display: block; width: 100%; min-height: 44px; box-sizing: border-box; }

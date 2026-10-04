@@ -115,7 +115,10 @@ from .service import (
 )
 
 logger = configure_logging()
+from .chat import router as chat_router
+
 app = FastAPI(title="INARENA API", version="0.2.0")
+app.include_router(chat_router)
 app.add_middleware(CORSMiddleware, **cors_configuration())
 app.add_middleware(RequestBodyLimitMiddleware)
 app.add_middleware(RateLimitMiddleware)

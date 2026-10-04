@@ -10,13 +10,17 @@ PR #24: critical journeys, READY/WARNING/BLOCKED release report, failure evidenc
 initial timing budgets, targeted mobile usability checks, and profile Copy ID
 for test-chip credit. No merge or deployment performed.
 
+Table chat v1 follows as a separate increment: private seated-player access,
+recent history, unread feedback, network recovery and a database-backed send
+throttle. It uses one-second REST refresh and adds desktop/mobile Guardian
+journeys; implementation and limits are documented in table-chat.md.
+
 ## Next small increments
 
 1. Review and promote Guardian through same-SHA CI; require journeys in repository
    branch protection, and perform the real Telegram/iPhone two-player dry run.
-2. Table chat: scoped realtime messages with Telegram identity, recent history
-   restored after reconnect, unread feedback and rate limits. First slice should
-   prove two players exchange a message at one table and other tables cannot see it.
+2. Verify and promote table chat v1 with the Guardian increment; add richer chat
+   controls only when closed-beta use demonstrates a need.
 3. Return-to-table convenience and clearer waiting/reconnect feedback, based on
    observed test-session friction; preserve financial and participation semantics.
 4. Owner conveniences for test-chip credit and table visibility, using current

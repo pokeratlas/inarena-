@@ -1,5 +1,15 @@
 {
-  "join": { "lobby-ready": 5000, "buy-in-seated": 8000 },
-  "owner-create": { "owner-table-created": 5000 },
-  "cash-loop": { "next-hand-ready": 10000 }
+  "join": {
+    "lobby-ready": 5000,
+    "buy-in-seated": 8000
+  },
+  "owner-create": {
+    "owner-table-created": 5000
+  },
+  "cash-loop": {
+    "next-hand-ready": 10000
+  },
+  "table-chat": {
+    "chat-message-delivered": 5000
+  }
 }
