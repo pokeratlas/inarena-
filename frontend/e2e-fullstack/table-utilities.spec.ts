@@ -48,7 +48,7 @@ test("hand history opens as a usable mobile drawer @guardian-table-utilities", a
     players.push({ user, sessionId: session.session_id, seat });
   }
 
-  const state = await expect.poll(async () => {
+  await expect.poll(async () => {
     const next = await (await request.get(`${API}/api/v1/tables/${table.id}`)).json();
     return next.active_hand ?? null;
   }, { timeout: 10_000 }).not.toBeNull();
