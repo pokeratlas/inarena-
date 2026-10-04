@@ -1,4 +1,4 @@
-# Product Guardian v1
+# Product Guardian v1 — journeys, timing and mobile usability
 
 A deterministic release check built from the existing Playwright fullstack suite.
 No AI service, production credentials, new database, telemetry, or deployment step.
@@ -25,7 +25,29 @@ a separate closed-beta requirement. Chat is not implemented or claimed by v1.
 - READY: all 20 required project/journey pairs pass on their first attempt.
 - WARNING: all pass, but at least one needs a retry. Investigate and rerun cleanly.
 - BLOCKED: failed, timed out, skipped, missing, duplicated or incomplete journey,
-  missing/invalid report, or runner/setup error.
+  missing/invalid report, runner/setup error, missing/invalid required measurement,
+  or elapsed time exceeding the configured budget.
+
+## Timing and usability increment
+
+`frontend/e2e-fullstack/guardian-budgets.json` is the shared budget source for
+Playwright and the release report: lobby ready 5s, selected buy-in to seated 8s,
+owner create to visible card 5s, Fold to actionable next hand 10s. These are
+initial ceilings in the local/CI development environment, not production latency
+SLOs or a comparison with a stable production baseline. Time starts immediately
+before the relevant UI action and stops after the visible outcome. Report includes
+actual duration and budget for desktop and applicable mobile journeys.
+
+Join presets/confirmation and owner create controls must be visible, enabled,
+at least 36px in both dimensions, and unobstructed at their center after scrolling;
+the page must have no horizontal overflow. This targeted automated UX check does
+not claim a full UX review; a 44px design target and real-device review are future work.
+Playwright output folders are excluded from Vite watching to prevent trace HTML
+from causing application reloads while the suite runs.
+
+Profile now provides Copy ID with accessible success/failure feedback. Its journey
+checks the real clipboard content and denied-clipboard recovery; credentials remain
+absent from the profile. No real-user analytics are installed before beta users exist.
 
 Only READY exits zero. WARNING and BLOCKED stop automatic release. The JSON/Markdown
 report records the exact checked-out SHA, every journey, and actionable reasons.

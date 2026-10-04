@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import math
 import os
 from pathlib import Path
 
@@ -15,12 +17,15 @@ REQUIRED = {
     "guardian-desktop": DESKTOP,
     "guardian-mobile": ("join", "owner-create", "owner-live", "owner-lifecycle"),
 }
+BUDGETS = json.loads((Path(__file__).resolve().parents[1] /
+                     "frontend/e2e-fullstack/guardian-budgets.json").read_text())
 
 
 def evaluate(report: dict) -> dict:
     blockers: list[str] = []
     warnings: list[str] = []
     evidence: dict[str, str] = {}
+    measurements: list[dict] = []
 
     def visit(suite: dict) -> None:
         for spec in suite.get("specs", []):
@@ -32,6 +37,29 @@ def evaluate(report: dict) -> dict:
                 if key in evidence:
                     blockers.append(f"Duplicate journey: {key}")
                 results = test.get("results", [])
+                if len(tags) == 1:
+                    measured = {}
+                    for attachment in (results[-1].get("attachments", []) if results else []):
+                        if not attachment.get("name", "").startswith("guardian-metric:"):
+                            continue
+                        try:
+                            value = json.loads(base64.b64decode(attachment["body"], validate=True))
+                            metric = value["metric"]
+                            duration = value["durationMs"]
+                            if (not isinstance(duration, (int, float)) or isinstance(duration, bool)
+                                    or not math.isfinite(duration) or duration < 0 or metric in measured):
+                                raise ValueError("invalid or duplicate duration")
+                            measured[metric] = duration
+                        except (ValueError, KeyError, TypeError):
+                            blockers.append(f"Invalid measurement: {key}")
+                    for metric, budget in BUDGETS.get(tags[0], {}).items():
+                        duration = measured.get(metric)
+                        measurements.append({"journey": key, "metric": metric,
+                                             "duration_ms": duration, "budget_ms": budget})
+                        if duration is None:
+                            blockers.append(f"Missing timing: {key}/{metric}")
+                        elif duration > budget:
+                            blockers.append(f"Timing exceeds {budget}ms: {key}/{metric} ({duration}ms)")
                 statuses = [result.get("status") for result in results]
                 if (test.get("expectedStatus") != "passed" or not statuses
                         or statuses[-1] != "passed" or test.get("status") not in {"expected", "flaky"}):
@@ -57,6 +85,7 @@ def evaluate(report: dict) -> dict:
     return {
         "gate": "BLOCKED" if blockers else "WARNING" if warnings else "READY",
         "blockers": blockers, "warnings": warnings, "journeys": evidence,
+        "measurements": measurements,
     }
 
 
@@ -79,6 +108,9 @@ def main() -> int:
     summary += "\n".join(f"- {message}" for message in result["blockers"] + result["warnings"])
     summary += "\n\n| Journey | Result |\n| --- | --- |\n"
     summary += "\n".join(f"| {key} | {value} |" for key, value in sorted(result["journeys"].items()))
+    summary += "\n\n| Journey / timing | Measured ms | Budget ms |\n| --- | --- | --- |\n"
+    summary += "\n".join(f"| {m['journey']}/{m['metric']} | {m['duration_ms']} | {m['budget_ms']} |"
+                         for m in result.get("measurements", []))
     output.with_suffix(".md").write_text(summary + "\n", encoding="utf-8")
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:

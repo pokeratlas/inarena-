@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { expectUsableControls, measureJourney } from "./guardian-checks";
 
 const API = "http://127.0.0.1:8000";
 const BOOTSTRAP_KEY = "fullstack-operator";
@@ -93,9 +94,11 @@ test("authenticated player restores session and joins a real cash table @guardia
   }, session.session_id);
   await page.reload();
 
+  await measureJourney("join", "lobby-ready", async () => {
   await page.getByRole("button", { name: "ONLINE" }).click();
   await expect(page.getByText(fixtureName("E2E Cash Table"))).toBeVisible();
   await expect(page.getByText(/Баланс 20000 chips/)).toBeVisible();
+  });
 
   await page.locator(".lobby-card").filter({ hasText: fixtureName("E2E Cash Table") })
     .getByRole("button", { name: /Сесть · Seat 1/ }).click();
@@ -103,11 +106,17 @@ test("authenticated player restores session and joins a real cash table @guardia
   await expect(
     page.getByLabel("Выбор buy-in").getByText(/Баланс 20,?000/),
   ).toBeVisible();
+  await expectUsableControls(page, [
+    page.getByRole("button", { name: "50 BB" }),
+    page.getByRole("button", { name: /Сесть за стол/ }),
+  ]);
+  await measureJourney("join", "buy-in-seated", async () => {
   await page.getByRole("button", { name: "50 BB" }).click();
   await page.getByRole("button", { name: /Сесть за стол/ }).click();
 
   await expect(page.getByText(fixtureName("E2E Cash Table"))).toBeVisible();
   await expect(page.getByText("ВЫ", { exact: true })).toBeVisible();
+  });
 
   const stateResponse = await request.get(
     `${API}/api/v1/tables/${table.id}`,
@@ -157,8 +166,11 @@ test("only an authenticated operator can create a table from Dashboard @guardian
   await page.getByRole("spinbutton", { name: "Big blind" }).fill("50");
   await page.getByRole("spinbutton", { name: "Min buy-in" }).fill("1000");
   await page.getByRole("spinbutton", { name: "Max buy-in" }).fill("5000");
+  await expectUsableControls(page, [createButton]);
+  await measureJourney("owner-create", "owner-table-created", async () => {
   await createButton.click();
   await expect(page.locator(".operator-table-card").filter({ hasText: fixtureName("Owner-created beta table") })).toHaveCount(1);
+  });
   const tables = await request.get(`${API}/api/v1/tables`);
   const createdTables = (await tables.json()).filter(
     (table: any) => table.name === fixtureName("Owner-created beta table"),
@@ -188,6 +200,18 @@ test("player profile shows only identity and refreshed balance @guardian-profile
   await expect(page.getByRole("heading", { name: "Профиль", exact: true })).toBeVisible();
   await expect(page.getByText("Beta Player", { exact: true })).toBeVisible();
   await expect(page.getByText(userId, { exact: true })).toBeVisible();
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await expectUsableControls(page, [page.getByRole("button", { name: "Скопировать ID" })]);
+  await page.getByRole("button", { name: "Скопировать ID" }).click();
+  await expect(page.getByRole("status")).toHaveText("ID скопирован");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(userId);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.clipboard, "writeText", {
+      value: async () => { throw new Error("Clipboard denied"); },
+    });
+  });
+  await page.getByRole("button", { name: "Скопировать ID" }).click();
+  await expect(page.getByRole("status")).toContainText("скопируйте вручную");
   await expect(page.getByText("0 chips", { exact: true })).toBeVisible();
   expect(await page.locator("body").innerText()).not.toContain(session.session_id);
   await expect(page.getByRole("button", { name: "Создать стол" })).toHaveCount(0);
@@ -336,6 +360,8 @@ test("cash table auto-starts for two players and continues to next hand @guardia
   await expect(actor!.page.getByRole("button", { name: /Raise|Bet/ })).toBeVisible();
   await expect(observer!.page.getByText(`Ход игрока ${actionSeat}`)).toBeVisible();
 
+  let nextActor: (typeof clients)[number] | undefined;
+  await measureJourney("cash-loop", "next-hand-ready", async () => {
   await actor!.page.getByRole("button", { name: "Fold" }).click();
 
   await expect.poll(async () => {
@@ -349,8 +375,9 @@ test("cash table auto-starts for two players and continues to next hand @guardia
   expect(nextState.active_hand).not.toBeNull();
   expect(nextState.active_hand.pot).toBe(150);
 
-  const nextActor = clients.find((client) => client.seat === nextState.active_hand.action_seat);
+  nextActor = clients.find((client) => client.seat === nextState.active_hand.action_seat);
   await expect(nextActor!.page.getByLabel("Действия игрока")).toBeVisible();
+  });
 
   // Real UI Call -> Raise -> Call, then verify the authoritative flop/pot.
   await nextActor!.page.getByRole("button", { name: "Call 50", exact: true }).click();
