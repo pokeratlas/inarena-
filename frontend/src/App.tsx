@@ -1274,6 +1274,18 @@ function OnlineLobby({
     }
   };
 
+  const cashTableCount = tables.filter(
+    (table) => table.table_mode === "cash" && table.status !== "closed",
+  ).length;
+  const liveTableCount = tables.filter(
+    (table) => Boolean(table.active_hand),
+  ).length;
+  const onlinePlayers = new Set(
+    tables.flatMap((table) =>
+      table.seats.map((seat) => seat.player_id),
+    ),
+  ).size;
+
   if (tableOpen && realtime.state) {
     return (
       <main className="app-main table-main">
@@ -1294,11 +1306,32 @@ function OnlineLobby({
 
   return (
     <main className="app-main">
-      <header className="app-header">
-        <p>INARENA ONLINE</p>
-        <h1>Лобби</h1>
-        {balance ? <span className="balance-chip">Баланс {balance.balance} chips</span> : null}
+      <header className="app-header online-lobby-header">
+        <div>
+          <p>INARENA ONLINE</p>
+          <h1>Лобби</h1>
+        </div>
+        {balance ? (
+          <span className="balance-chip">
+            {balance.balance.toLocaleString()} chips
+          </span>
+        ) : null}
       </header>
+
+      <section className="lobby-overview" aria-label="Сводка лобби">
+        <article>
+          <strong>{cashTableCount}</strong>
+          <span>Cash столов</span>
+        </article>
+        <article>
+          <strong>{liveTableCount}</strong>
+          <span>Сейчас играют</span>
+        </article>
+        <article>
+          <strong>{onlinePlayers}</strong>
+          <span>Игроков за столами</span>
+        </article>
+      </section>
 
       {loading ? (
         <div className="state-card" role="status" aria-live="polite">
@@ -1330,29 +1363,145 @@ function OnlineLobby({
             <span>Новый стол появится здесь автоматически после создания оператором.</span>
           </div>
         ) : (
-          tables.map((table) => {
+          tables
+            .slice()
+            .sort((left, right) => {
+              const leftMine = left.seats.some(
+                (seat) => seat.player_id === playerId,
+              );
+              const rightMine = right.seats.some(
+                (seat) => seat.player_id === playerId,
+              );
+              if (leftMine !== rightMine) return leftMine ? -1 : 1;
+              if (left.table_mode !== right.table_mode) {
+                return left.table_mode === "cash" ? -1 : 1;
+              }
+              if (Boolean(left.active_hand) !== Boolean(right.active_hand)) {
+                return left.active_hand ? -1 : 1;
+              }
+              return left.name.localeCompare(right.name);
+            })
+            .map((table) => {
             const seated = table.seats.some(
               (seat) => seat.player_id === playerId,
             );
+            const maxSeats = 9;
             const occupied = new Set(table.seats.map((seat) => seat.seat_no));
             const firstFreeSeat = Array.from(
-              { length: 9 },
+              { length: maxSeats },
               (_, index) => index + 1,
             ).find((seatNo) => !occupied.has(seatNo));
+            const freeSeats = Math.max(0, maxSeats - table.seats.length);
+            const tableStatus =
+              table.status === "closed"
+                ? "Закрыт"
+                : seated
+                  ? "Вы за столом"
+                  : table.seats.length >= maxSeats
+                    ? "Полный"
+                    : table.active_hand
+                      ? "Идёт игра"
+                      : table.seats.length >= 2
+                        ? "Готов к игре"
+                        : "Ожидание игроков";
+            const statusTone =
+              table.status === "closed"
+                ? "closed"
+                : seated
+                  ? "mine"
+                  : table.active_hand
+                    ? "live"
+                    : table.seats.length >= maxSeats
+                      ? "full"
+                      : "waiting";
 
             return (
-              <article className="lobby-card" key={table.id}>
-                <strong>{table.name}</strong>
-                <span>
-                  {table.table_mode === "tournament"
-                    ? `Tournament · ${table.tournament_status} · ${table.registration_count} registered`
-                    : `Cash · waitlist ${table.waitlist_count}`}
-                  {" · "}{table.small_blind}/{table.big_blind} · {table.seats.length} игроков
-                  {table.winner_player_id ? ` · Winner ${table.winner_player_id}` : ""}
-                </span>
-                <div className="lobby-actions">
+              <article
+                className={[
+                  "lobby-card",
+                  "lobby-room-card",
+                  seated ? "is-my-table" : "",
+                ].filter(Boolean).join(" ")}
+                key={table.id}
+              >
+                <div className="lobby-room-head">
+                  <div className="lobby-room-title">
+                    <span className="lobby-room-mode">
+                      {table.table_mode === "cash" ? "CASH" : "TOURNAMENT"}
+                    </span>
+                    <strong>{table.name}</strong>
+                  </div>
+                  <span className={"room-status " + statusTone}>
+                    <i />
+                    {tableStatus}
+                  </span>
+                </div>
+
+                <div className="lobby-room-stats">
+                  <div>
+                    <small>BLINDS</small>
+                    <strong>
+                      {table.small_blind}/{table.big_blind}
+                    </strong>
+                  </div>
+                  <div>
+                    <small>ИГРОКИ</small>
+                    <strong>
+                      {table.seats.length}/{maxSeats}
+                    </strong>
+                  </div>
+                  {table.table_mode === "cash" ? (
+                    <div>
+                      <small>BUY-IN</small>
+                      <strong>
+                        {table.cash_buyin_min.toLocaleString()}–
+                        {table.cash_buyin_max.toLocaleString()}
+                      </strong>
+                    </div>
+                  ) : (
+                    <div>
+                      <small>REGISTERED</small>
+                      <strong>{table.registration_count}</strong>
+                    </div>
+                  )}
+                </div>
+
+                <div className="lobby-room-people">
+                  <div className="room-avatar-stack" aria-label="Игроки за столом">
+                    {table.seats.slice(0, 5).map((seat) =>
+                      seat.photo_url ? (
+                        <img
+                          key={seat.player_id}
+                          src={seat.photo_url}
+                          alt=""
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <span key={seat.player_id}>
+                          {(seat.display_name?.trim()?.[0] ?? "P").toUpperCase()}
+                        </span>
+                      ),
+                    )}
+                    {table.seats.length === 0 ? (
+                      <span className="room-avatar-empty">—</span>
+                    ) : null}
+                    {table.seats.length > 5 ? (
+                      <span>+{table.seats.length - 5}</span>
+                    ) : null}
+                  </div>
+                  <span className="room-free-seats">
+                    {freeSeats > 0
+                      ? `Свободно ${freeSeats} ${freeSeats === 1 ? "место" : "мест"}`
+                      : "Свободных мест нет"}
+                    {table.waitlist_count > 0
+                      ? ` · очередь ${table.waitlist_count}`
+                      : ""}
+                  </span>
+                </div>
+
+                <div className="lobby-actions lobby-room-actions">
                   <button
-                    className="ghost-button"
+                    className={seated ? "action-button action-primary" : "ghost-button"}
                     type="button"
                     onClick={() => {
                       setSelectedTableId(table.id);
@@ -1360,8 +1509,9 @@ function OnlineLobby({
                       onTableScreenChange(true);
                     }}
                   >
-                    Открыть
+                    {seated ? "Вернуться за стол" : "Смотреть"}
                   </button>
+
                   {table.table_mode === "tournament" && session ? (
                     <>
                       {registrations[table.id]?.status !== "registered" &&
