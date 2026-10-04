@@ -23,7 +23,7 @@ export default defineConfig({
     {
       name: "guardian-mobile",
       use: { ...devices["iPhone 13"], defaultBrowserType: "chromium" },
-      grep: /@guardian-(join|owner-create|owner-live|owner-lifecycle|table-chat|return)/,
+      grep: /@guardian-(join|owner-create|owner-live|owner-lifecycle|table-chat|return|owner-credit)/,
     },
   ],
 });
