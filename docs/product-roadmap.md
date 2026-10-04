@@ -17,27 +17,29 @@ not automatically pause the agreed work.
 - Network Recovery v1: active-hand offline gap, locked disconnected actions,
   bounded reconnect, request-ID correlation and duplicate-action protection in
   both desktop and mobile Guardian projects.
+- Telegram Fast Bootstrap: dismisses Telegram's native loader before backend
+  authentication completes and removes the redundant stored-session request.
 
-These increments were promoted sequentially only after same-SHA CI gates passed.
+## Verified real-device milestone
+
+A controlled real iPhone Telegram Mini App run was reported PASS on 2026-10-05
+against RC1 `0c4067fd`. No blocking startup, authentication, lobby, gameplay,
+chat, reconnect, return-to-table, chip-accounting or mobile-layout problem was
+reported in that run.
 
 ## Current milestone
 
-Real Telegram/iPhone two-player dry run on public staging. Preserve evidence for:
-authentication/session restore, OFFLINE -> ONLINE, seating, private cards, action
-controls, automatic next hand, background/foreground recovery, forced network
-loss/recovery, chat, return-to-table and clean table exit.
-
-Public staging is available for this milestone. The remaining verification is
-real-device behavior; browser emulation does not substitute for it.
+Complete the remaining invited-beta prerequisites:
+1. Android real-device Telegram Mini App run.
+2. Hosted PostgreSQL backup/restore drill against the selected staging database.
+3. Preserve release-candidate evidence on the exact invited-beta SHA.
 
 ## Next small increments
 
-1. Complete and record the real Telegram/iPhone two-player dry run.
-2. Fix only concrete blocker/correctness/UX issues observed in the dry run.
-3. Repeat the hosted PostgreSQL backup/restore drill against the selected staging
-   database before invited-user beta.
-4. Establish performance baselines after a stable closed-beta environment exists.
-5. Add richer chat or owner controls only from observed closed-beta friction.
+1. Fix only blocker/correctness/UX issues observed in remaining device/infrastructure checks.
+2. Start a small closed beta with 10–30 invited users after all blocking prerequisites pass.
+3. Establish performance baselines from real closed-beta traffic.
+4. Add richer chat or owner controls only from observed closed-beta friction.
 
 Real User Intelligence/session analytics remain deferred until closed-beta users
 exist. No PostHog or OpenTelemetry rollout is required yet. Existing backend
