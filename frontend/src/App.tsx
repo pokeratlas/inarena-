@@ -1972,6 +1972,31 @@ function OperatorDashboardView() {
     if (operatorKey) void load(operatorKey);
   }, []);
 
+  useEffect(() => {
+    if (!operatorKey || !dashboard) return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const [tableRows, data] = await Promise.all([
+          listTables(),
+          getOperatorDashboard(operatorKey),
+        ]);
+        if (!active) return;
+        setTables(tableRows);
+        setDashboard(data);
+      } catch {
+        // Keep the current owner view intact; explicit actions surface errors.
+      }
+    };
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, 2000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [operatorKey, Boolean(dashboard)]);
+
   const runTableAction = async (
     tableId: string,
     operation: () => Promise<TableState>,
@@ -2218,6 +2243,7 @@ function OperatorDashboardView() {
               <button
                 className="action-button action-primary"
                 type="submit"
+                aria-label="Создать стол"
                 disabled={creatingTable || !tableName.trim()}
               >
                 {creatingTable ? "Создание…" : "Создать и открыть стол"}
@@ -2249,6 +2275,7 @@ function OperatorDashboardView() {
               return (
                 <article
                   className={[
+                    "operator-table-card",
                     "manager-table-card",
                     table.active_hand ? "is-live" : "",
                     table.status === "closed" ? "is-closed" : "",
