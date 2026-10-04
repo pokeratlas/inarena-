@@ -1313,7 +1313,7 @@ function OnlineLobby({
         </div>
         {balance ? (
           <span className="balance-chip">
-            {balance.balance.toLocaleString()} chips
+            Баланс {balance.balance} chips
           </span>
         ) : null}
       </header>
@@ -1503,6 +1503,7 @@ function OnlineLobby({
                   <button
                     className={seated ? "action-button action-primary" : "ghost-button"}
                     type="button"
+                    aria-label="Открыть"
                     onClick={() => {
                       setSelectedTableId(table.id);
                       setTableOpen(true);
