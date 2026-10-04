@@ -1994,6 +1994,9 @@ function OperatorDashboardView() {
   const [tableAction, setTableAction] = useState<string | null>(null);
   const [balanceUser, setBalanceUser] = useState("");
   const [balanceDelta, setBalanceDelta] = useState(0);
+  const [quickCreditPending, setQuickCreditPending] = useState(false);
+  const [quickCreditResult, setQuickCreditResult] = useState<PlayerBalance | null>(null);
+  const [tableFilter, setTableFilter] = useState<"all" | "live" | "open" | "paused" | "closed">("all");
   const [error, setError] = useState<string | null>(null);
 
   const load = async (key = operatorKey) => {
@@ -2080,6 +2083,28 @@ function OperatorDashboardView() {
     }
   };
 
+  const quickCredit = async (amount: number) => {
+    const userId = balanceUser.trim();
+    if (!userId || quickCreditPending) return;
+    setQuickCreditPending(true);
+    setQuickCreditResult(null);
+    setError(null);
+    try {
+      const updated = await operatorAdjustBalance(userId, amount, operatorKey);
+      setBalanceUser(userId);
+      setQuickCreditResult(updated);
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Не удалось начислить тестовые chips",
+      );
+    } finally {
+      setQuickCreditPending(false);
+    }
+  };
+
   const orderedTables = tables
     .slice()
     .sort((left, right) => {
@@ -2091,6 +2116,47 @@ function OperatorDashboardView() {
       }
       return left.name.localeCompare(right.name);
     });
+
+  const tableFilters = [
+    { key: "all", label: "Все", count: tables.length },
+    {
+      key: "live",
+      label: "Live",
+      count: tables.filter((table) => Boolean(table.active_hand)).length,
+    },
+    {
+      key: "open",
+      label: "Открыты",
+      count: tables.filter(
+        (table) =>
+          !table.active_hand &&
+          table.status !== "paused" &&
+          table.status !== "closed",
+      ).length,
+    },
+    {
+      key: "paused",
+      label: "Пауза",
+      count: tables.filter((table) => table.status === "paused").length,
+    },
+    {
+      key: "closed",
+      label: "Закрыты",
+      count: tables.filter((table) => table.status === "closed").length,
+    },
+  ] as const;
+
+  const visibleTables = orderedTables.filter((table) => {
+    if (tableFilter === "all") return true;
+    if (tableFilter === "live") return Boolean(table.active_hand);
+    if (tableFilter === "paused") return table.status === "paused";
+    if (tableFilter === "closed") return table.status === "closed";
+    return (
+      !table.active_hand &&
+      table.status !== "paused" &&
+      table.status !== "closed"
+    );
+  });
 
   return (
     <main className="app-main operator-dashboard table-manager">
@@ -2181,6 +2247,57 @@ function OperatorDashboardView() {
               <strong>{dashboard.active_sessions}</strong>
               <span>Online</span>
             </article>
+          </section>
+
+          <section
+            className="manager-quick-credit"
+            aria-label="Быстрое начисление тестовых chips"
+          >
+            <div className="manager-quick-credit-head">
+              <div>
+                <span>TEST CHIPS</span>
+                <h2>Быстрое начисление</h2>
+              </div>
+              <p>Player ID можно скопировать в профиле игрока.</p>
+            </div>
+            <label className="manager-credit-player">
+              <span>Player ID</span>
+              <input
+                aria-label="Player ID для начисления"
+                placeholder="Вставьте Player ID"
+                autoComplete="off"
+                value={balanceUser}
+                disabled={quickCreditPending}
+                onChange={(event) => {
+                  setBalanceUser(event.target.value);
+                  setQuickCreditResult(null);
+                }}
+              />
+            </label>
+            <div className="manager-credit-presets" aria-label="Сумма начисления">
+              {[1_000, 5_000, 10_000].map((amount) => (
+                <button
+                  className="action-button"
+                  type="button"
+                  key={amount}
+                  aria-label={`Начислить ${amount} test chips`}
+                  disabled={!balanceUser.trim() || quickCreditPending}
+                  onClick={() => void quickCredit(amount)}
+                >
+                  +{amount.toLocaleString()}
+                </button>
+              ))}
+            </div>
+            {quickCreditResult ? (
+              <p className="manager-credit-result" role="status">
+                Баланс {quickCreditResult.user_id}:{" "}
+                <strong>{quickCreditResult.balance.toLocaleString()} chips</strong>
+              </p>
+            ) : (
+              <p className="manager-credit-note">
+                Только внутренние тестовые chips; операция фиксируется в audit.
+              </p>
+            )}
           </section>
 
           <details className="manager-create" open>
@@ -2314,15 +2431,38 @@ function OperatorDashboardView() {
             </form>
           </details>
 
+          <nav className="manager-table-filters" aria-label="Фильтр столов">
+            {tableFilters.map((filter) => (
+              <button
+                type="button"
+                key={filter.key}
+                aria-pressed={tableFilter === filter.key}
+                aria-label={`Показать столы: ${filter.label.toLowerCase()}`}
+                onClick={() => setTableFilter(filter.key)}
+              >
+                <span>{filter.label}</span>
+                <strong>{filter.count}</strong>
+              </button>
+            ))}
+          </nav>
+
           <section className="manager-table-list" aria-label="Управление столами">
-            {orderedTables.length === 0 ? (
+            {visibleTables.length === 0 ? (
               <div className="state-card">
-                <strong>Столов пока нет</strong>
-                <span>Создайте первый 7-max cash-стол выше.</span>
+                <strong>
+                  {orderedTables.length === 0
+                    ? "Столов пока нет"
+                    : "Нет столов в этом фильтре"}
+                </strong>
+                <span>
+                  {orderedTables.length === 0
+                    ? "Создайте первый 7-max cash-стол выше."
+                    : "Выберите другой статус стола."}
+                </span>
               </div>
             ) : null}
 
-            {orderedTables.map((table) => {
+            {visibleTables.map((table) => {
               const isCash = table.table_mode === "cash";
               const activePlayers = table.seats.filter(
                 (seat) => seat.status === "seated",

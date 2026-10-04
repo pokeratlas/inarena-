@@ -14,5 +14,8 @@
   },
   "return": {
     "return-to-table": 8000
+  },
+  "owner-credit": {
+    "quick-credit": 5000
   }
 }

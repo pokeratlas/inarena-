@@ -2,27 +2,25 @@
 
 A deterministic release check built from the existing Playwright fullstack suite.
 No AI service, production credentials, new database, telemetry, or deployment step.
-Baseline: release/closed-beta-rc1, PR #23, dc68d88.
 
 ## Required journeys
 
-Desktop runs all 16 existing fullstack scenarios: owner session persistence,
-invalid session recovery, player restored session/lobby/buy-in/join, profile and
-balance, protected owner creation with blinds and buy-in bounds, live owner hand,
-two-player autostart and next hand, watchdog, leave after settlement, public
-identity privacy, sit-out/return, immediate and queued top-up, showdown/reconnect/
-settlement/exit, fixed seven-max, owner pause/reopen/close.
+Guardian now treats complete player and owner workflows as the release contract.
+Desktop covers 19 journeys: owner session/recovery/create/live/lifecycle, authenticated
+join/profile/identity, cash autostart/watchdog/leave/sit-out/top-up/showdown acceptance,
+fixed seven-max, private table chat, safe return-to-table, and Owner Quick Credit.
 
-Mobile Chromium (390px, touch/device emulation) repeats join, owner creation,
-live hand and pause/reopen/close. This is not an iPhone Telegram/WebKit dry run.
-API calls prepare test players/chips; UI actions exercise the existing player
-and owner controls. The showdown acceptance also checks authenticated APIs.
-Telegram HMAC validation remains in backend tests; real device validation remains
-a separate closed-beta requirement. Chat is not implemented or claimed by v1.
+Mobile Chromium (iPhone 13 viewport/touch emulation) repeats seven critical journeys:
+join, owner creation, live owner view, owner lifecycle, table chat, return-to-table,
+and Owner Quick Credit. This remains browser emulation rather than a real Telegram
+iPhone/WebKit dry run; real-device validation is a separate closed-beta requirement.
+
+API calls prepare disposable test users/tables/chips. User-visible actions are still
+performed through the UI. Telegram HMAC validation remains in backend tests.
 
 ## Gate policy
 
-- READY: all 20 required project/journey pairs pass on their first attempt.
+- READY: all 26 required project/journey pairs pass on their first attempt.
 - WARNING: all pass, but at least one needs a retry. Investigate and rerun cleanly.
 - BLOCKED: failed, timed out, skipped, missing, duplicated or incomplete journey,
   missing/invalid report, runner/setup error, missing/invalid required measurement,
@@ -31,30 +29,26 @@ a separate closed-beta requirement. Chat is not implemented or claimed by v1.
 ## Timing and usability increment
 
 `frontend/e2e-fullstack/guardian-budgets.json` is the shared budget source for
-Playwright and the release report: lobby ready 5s, selected buy-in to seated 8s,
-owner create to visible card 5s, Fold to actionable next hand 10s. These are
-initial ceilings in the local/CI development environment, not production latency
-SLOs or a comparison with a stable production baseline. Time starts immediately
-before the relevant UI action and stops after the visible outcome. Report includes
-actual duration and budget for desktop and applicable mobile journeys.
+Playwright and the release report. Current development/CI ceilings include:
+lobby ready 5s, selected buy-in to seated 8s, owner create 5s, Fold to actionable
+next hand 10s, chat delivery 5s, return-to-table 8s, and Owner Quick Credit 5s.
+These are development ceilings, not production latency SLOs.
 
-Join presets/confirmation and owner create controls must be visible, enabled,
-at least 36px in both dimensions, and unobstructed at their center after scrolling;
-the page must have no horizontal overflow. This targeted automated UX check does
-not claim a full UX review; a 44px design target and real-device review are future work.
-Playwright output folders are excluded from Vite watching to prevent trace HTML
-from causing application reloads while the suite runs.
+Critical controls must be visible, enabled, at least 36px in both dimensions, and
+unobstructed at their center after scrolling; the page must have no horizontal
+overflow. This targeted automated UX check does not replace a real-device review.
+A stricter 44px design target remains a future UI hardening step.
 
-Profile now provides Copy ID with accessible success/failure feedback. Its journey
-checks the real clipboard content and denied-clipboard recovery; credentials remain
-absent from the profile. No real-user analytics are installed before beta users exist.
+Profile Copy ID is verified with real clipboard content and denied-clipboard recovery.
+Owner Quick Credit uses that ID with the existing audited balance mutation and keeps
+manual delta adjustment available for advanced corrections. Chat/return journeys
+verify reconnect behavior and preserve membership/participation semantics.
 
 Only READY exits zero. WARNING and BLOCKED stop automatic release. The JSON/Markdown
-report records the exact checked-out SHA, every journey, and actionable reasons.
-`scripts/rc_gate.py` additionally requires successful backend-ci, frontend-ci and
-product-guardian on the candidate SHA, including every required job. Old successful
-runs cannot override a newer failure or pending run. The existing PASS RC manifest
-remains compatible and adds `product_guardian: READY`.
+report records the exact checked-out SHA, every journey, timing measurements and
+actionable reasons. `scripts/rc_gate.py` additionally requires successful backend-ci,
+frontend-ci and product-guardian on the candidate SHA, including every required job.
+Old successful runs cannot override a newer failure or pending run.
 
 ## Run locally
 
@@ -73,21 +67,16 @@ python -m unittest discover -s scripts -p 'test_*gate.py'
 ```
 
 Use a fresh database for each complete run; projects/retries use distinct table
-names. One worker limits shared-backend contention. Existing frontend/fullstack
-commands remain available. Production frontend/backend source and schema are unchanged.
+names. One worker limits shared-backend contention.
 
 ## CI and evidence
 
 `product-guardian.yml` runs on PRs, main/RC1 pushes and manual dispatch. It uploads
 gate JSON/Markdown, Playwright JSON/HTML, and retained failure artifacts even when
-tests fail. Trace/screenshots include manually created multiplayer contexts;
-video covers runner-managed page contexts (owner and player join). Keep artifacts
-14 days. Test sessions and operator keys are disposable local fixtures; traces
-can contain them, so artifacts must never use production credentials.
+tests fail. Artifacts are retained 14 days. Test sessions and operator keys are
+disposable local fixtures; production credentials must never be used.
 
-The existing frontend workflow still runs shell/mobile/accessibility smoke and
-the original fullstack suite; backend CI keeps integration, load and restore gates.
-Guardian adds a unified user-journey report rather than replacing these checks.
-Run the release-candidate workflow only after all three workflows finish on the
-candidate SHA. Repository branch protection must require `journeys` alongside
-existing checks; this code does not change repository settings or promote RC1.
+The frontend workflow still runs build/fullstack/mobile/accessibility checks; backend
+CI keeps PostgreSQL, Redis, load and restore gates. Guardian is the unified user-
+journey decision layer, not a replacement for those checks. RC1 promotion is allowed
+only after all required workflows are green on the same candidate SHA.

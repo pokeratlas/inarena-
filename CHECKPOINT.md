@@ -701,3 +701,43 @@ Two staging players seated but active_hand remained null: start requires existin
 Real staging play exposed two RC1 gaps after the owner-start control: player action controls could miss the hand state in Telegram WebView, and completed cash hands stopped at status=open. The repair keeps the first hand operator-controlled, adds a 1s table snapshot fallback alongside WebSocket realtime, uses street contributions for action UI decisions, shows an explicit waiting-for-opponent state, and schedules the next cash hand after a 2s leave window when at least two funded seated players remain. No schema or auth changes.
 
 Evidence: fullstack E2E now uses two isolated player browser contexts and verifies private hole cards, action controls only for the acting seat, observer waiting state, authenticated Fold completion, and automatic transition to a distinct next hand with status=playing and blinds posted. Frontend CI and all backend CI jobs passed on PR #9 before release merge.
+
+## RC1 product-quality milestone — 2026-10-04
+
+Promoted sequentially into `release/closed-beta-rc1`:
+- PR #24 — Product Guardian v1.
+- PR #25 — private table chat v1.
+- PR #26 — safe return-to-table and reconnect feedback.
+
+Current verified RC1 SHA: `8b21bb39935497ea93f0a7002a77dbc2018c4391`.
+
+Same-SHA GitHub CI is fully green:
+- backend test;
+- PostgreSQL integration;
+- Redis integration;
+- load smoke;
+- staging smoke;
+- backup/restore drill;
+- frontend build;
+- fullstack E2E;
+- Product Guardian journeys.
+
+### Current bounded increment
+
+Branch `feat/owner-quick-credit-v1`:
+- quick test-chip presets +1,000 / +5,000 / +10,000 by Player ID;
+- visible resulting balance;
+- existing manual delta tool retained;
+- owner table filters: All / Live / Open / Paused / Closed;
+- desktop + mobile Guardian journey with a 5s quick-credit budget;
+- no backend, schema, ledger, role or deployment changes.
+
+### Next
+
+1. Pass backend/frontend/Product Guardian CI for Owner Quick Credit on one PR SHA.
+2. Promote only after the candidate SHA is green.
+3. Run the real Telegram/iPhone two-player closed-beta dry run.
+4. Continue network/reconnect diagnostic hardening from observed test-session friction.
+
+No production deployment is authorized by this checkpoint.
+
