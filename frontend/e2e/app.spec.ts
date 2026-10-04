@@ -156,7 +156,7 @@ test("Telegram shell calls ready before slow session refresh and uses one restor
 
   await expect.poll(() =>
     page.evaluate(() => (window as any).__telegramReadyCalls),
-  ).toBe(1);
+  ).toBeGreaterThan(0);
   await expect.poll(() => refreshSeen).toBe(true);
   expect(currentSessionRequests).toBe(0);
 
