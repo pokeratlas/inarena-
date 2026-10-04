@@ -12,7 +12,7 @@ from .migration_runner import migrate_postgres
 from .postgres_schema import POSTGRES_SCHEMA_VERSION
 
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 _postgres_pool = None
 _postgres_pool_lock = threading.Lock()
@@ -656,6 +656,25 @@ def _migration_16(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_17(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS table_chat (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            table_id TEXT NOT NULL REFERENCES runtime_tables(id) ON DELETE CASCADE,
+            player_id TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            text TEXT NOT NULL CHECK(length(text) BETWEEN 1 AND 500),
+            client_message_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(table_id, player_id, client_message_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_table_chat_history ON table_chat(table_id, sequence);
+        CREATE TABLE IF NOT EXISTS chat_senders (player_id TEXT PRIMARY KEY, last_sent DOUBLE PRECISION NOT NULL);
+        """
+    )
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
@@ -673,6 +692,7 @@ MIGRATIONS = {
     14: _migration_14,
     15: _migration_15,
     16: _migration_16,
+    17: _migration_17,
 }
 
 

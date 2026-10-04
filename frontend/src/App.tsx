@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { TableChat } from "./TableChat";
 
 import {
   type AuthSession,
@@ -1016,6 +1017,10 @@ function OnlineTable({
         }}
         onLeave={onBack}
       />
+
+      {sessionId && playerId && table.seats.some((seat) => seat.player_id === playerId) && (
+        <TableChat key={table.id + sessionId} tableId={table.id} sessionId={sessionId} playerId={playerId} />
+      )}
 
       <details className="history-panel history-panel-compact">
         <summary>История последней раздачи</summary>
