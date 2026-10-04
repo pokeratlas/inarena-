@@ -251,7 +251,7 @@ test("owner table manager reflects a two-player live hand @guardian-owner-live",
     card.getByText("Идёт раздача", { exact: true }),
   ).toBeVisible({ timeout: 10_000 });
   await expect(card.getByText("2/7", { exact: true })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Начать раздачу" })).toBeDisabled();
+  await expect(card.getByRole("button", { name: "Начать раздачу" })).toHaveCount(0);
   await card.getByRole("button", { name: "Управление" }).click();
   await expect(card.getByText(/PREFLOP · Pot 150/)).toBeVisible();
 
