@@ -1,0 +1,5 @@
+{
+  "join": { "lobby-ready": 5000, "buy-in-seated": 8000 },
+  "owner-create": { "owner-table-created": 5000 },
+  "cash-loop": { "next-hand-ready": 10000 }
+}
