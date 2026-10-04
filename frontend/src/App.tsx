@@ -17,6 +17,7 @@ import {
   getMyBalance,
   getMyHandHistory,
   getPlayerTableView,
+  getTable,
   refreshCurrentSession,
   revokeOperatorSession,
   joinAuthenticatedTable,
@@ -902,6 +903,12 @@ function OnlineTable({
         </span>
       </header>
 
+      {!connected && (
+        <p className="table-connection-state" role="status">
+          Восстанавливаем связь со столом. Дождитесь обновления перед действием.
+        </p>
+      )}
+
       <section className="game-stage">
         <div className="opponent-row">
           {opponents.map((seat) => (
@@ -1078,6 +1085,7 @@ function OnlineLobby({
   } | null>(null);
   const [buyInAmount, setBuyInAmount] = useState(0);
   const [buyInPending, setBuyInPending] = useState(false);
+  const [returnPending, setReturnPending] = useState(false);
   const realtime = useTableRealtime(tableOpen ? selectedTableId : null);
 
   useEffect(() => {
@@ -1293,6 +1301,42 @@ function OnlineLobby({
     ),
   ).size;
 
+  const myTables = playerId ? tables.filter((table) =>
+    table.status !== "closed" && table.seats.some((seat) => seat.player_id === playerId),
+  ) : [];
+
+  const returnToTable = async (tableId: string) => {
+    if (!playerId || returnPending) return;
+    setReturnPending(true);
+    setLoadingError(null);
+    try {
+      const current = await getTable(tableId, AbortSignal.timeout(5000));
+      if (current.status === "closed" || !current.seats.some((seat) => seat.player_id === playerId)) {
+        setTables((items) => items.map((table) => table.id === tableId ? current : table));
+        setLoadingError("Место за этим столом больше недоступно. Выберите стол в лобби.");
+        return;
+      }
+      setSelectedTableId(tableId);
+      setTableOpen(true);
+      onTableScreenChange(true);
+    } catch {
+      setLoadingError("Не удалось проверить стол. Проверьте связь и попробуйте ещё раз.");
+    } finally {
+      setReturnPending(false);
+    }
+  };
+
+  if (tableOpen && !realtime.state) {
+    return <main className="app-main">
+      <div className="state-card" role="status">
+        {realtime.error ? "Не удалось связаться со столом. Повторяем подключение…" : "Подключаемся к столу…"}
+      </div>
+      <button className="ghost-button" type="button" onClick={() => {
+        setTableOpen(false); onTableScreenChange(false); setReloadKey((value) => value + 1);
+      }}>← Лобби</button>
+    </main>;
+  }
+
   if (tableOpen && realtime.state) {
     return (
       <main className="app-main table-main">
@@ -1305,6 +1349,7 @@ function OnlineLobby({
           onBack={() => {
             setTableOpen(false);
             onTableScreenChange(false);
+            setReloadKey((value) => value + 1);
           }}
         />
       </main>
@@ -1324,6 +1369,19 @@ function OnlineLobby({
           </span>
         ) : null}
       </header>
+
+      {!loading && !loadingError && myTables.length > 0 && (
+        <section className="return-to-table" aria-label="Ваши столы">
+          {myTables.map((table) => <div key={table.id}>
+            <strong>{table.name}</strong>
+            <p>{table.seats.find((seat) => seat.player_id === playerId)?.status.startsWith("sitting_out")
+              ? "Вы в sit-out. Возвращение откроет стол; участие включается отдельно."
+              : "Ваше место за столом сохранено."}</p>
+            <button className="action-button action-primary" type="button" disabled={returnPending}
+              onClick={() => void returnToTable(table.id)}>{returnPending ? "Проверяем стол…" : "Вернуться в игру"}</button>
+          </div>)}
+        </section>
+      )}
 
       <section className="lobby-overview" aria-label="Сводка лобби">
         <article>
