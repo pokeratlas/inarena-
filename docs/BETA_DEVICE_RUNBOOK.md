@@ -1,7 +1,9 @@
 # INARENA Telegram Mini App Device Runbook
 
 ## Goal
-Validate the current release candidate on real iPhone and Android devices before closed beta.
+Validate the current release candidate on real devices before closed beta.
+
+The immediate milestone is a controlled two-player Telegram/iPhone cash-table dry run. Android remains part of the full closed-beta device matrix.
 
 ## Required environment
 - public HTTPS frontend URL;
@@ -27,16 +29,16 @@ Minimum:
 6. Verify chip balance.
 7. Join a cash table.
 8. Confirm reserved/private data is visible only to that player.
-9. Play a controlled hand.
+9. Play a controlled heads-up hand and verify both clients see the same public state while only their own hole cards are exposed.
 10. Background Telegram for 10–30 seconds.
 11. Return and verify realtime reconnect/state replay.
-12. Force network loss and recovery.
+12. Force network loss and recovery while a hand is active; action controls must lock while disconnected and recover without duplicating an action.
 13. Leave the cash table and verify chip balance returns correctly.
 14. Repeat with tournament registration and seating.
 
 ## Table UX
 Validate:
-- 2 / 6 / 9-seat layouts;
+- fixed 7-max layout at heads-up, 3+ player occupancy and a full 7-seat table;
 - long player names;
 - D / SB / BB badges;
 - board/hole cards;
