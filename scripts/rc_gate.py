@@ -7,7 +7,12 @@ import sys
 import urllib.request
 
 
-REQUIRED_WORKFLOWS = ("backend-ci", "frontend-ci")
+REQUIRED_WORKFLOWS = ("backend-ci", "frontend-ci", "product-guardian")
+REQUIRED_JOBS = {
+    "backend-ci": {"test", "postgres-integration", "redis-integration", "staging-smoke", "load-smoke", "backup-restore-drill"},
+    "frontend-ci": {"build", "fullstack-e2e"},
+    "product-guardian": {"journeys"},
+}
 
 
 def api_get(url: str, token: str) -> dict:
@@ -49,18 +54,17 @@ def select_latest_successful_run(
         run
         for run in runs
         if run.get("name") == workflow_name
-        and run.get("status") == "completed"
     ]
     if not matching:
         raise RuntimeError(
-            f"no completed {workflow_name} run found for requested SHA"
+            f"no {workflow_name} run found for requested SHA"
         )
     matching.sort(
-        key=lambda run: run.get("run_attempt", 1),
+        key=lambda run: (run.get("id", 0), run.get("run_attempt", 1)),
         reverse=True,
     )
     run = matching[0]
-    if run.get("conclusion") != "success":
+    if run.get("status") != "completed" or run.get("conclusion") != "success":
         raise RuntimeError(
             f"{workflow_name} is not green: "
             f"{run.get('conclusion') or run.get('status')}"
@@ -69,10 +73,13 @@ def select_latest_successful_run(
 
 
 def assert_jobs_green(jobs: list[dict], workflow_name: str) -> list[str]:
+    missing = REQUIRED_JOBS[workflow_name] - {job.get("name") for job in jobs}
+    if missing:
+        raise RuntimeError(f"{workflow_name} missing required jobs: {sorted(missing)}")
     failures = [
         f"{job.get('name')}: {job.get('conclusion') or job.get('status')}"
         for job in jobs
-        if job.get("conclusion") not in {"success", "skipped"}
+        if job.get("conclusion") != "success"
     ]
     if failures:
         raise RuntimeError(
@@ -114,6 +121,7 @@ def main() -> int:
         "frontend_version": args.frontend_version,
         "workflows": verified,
         "gate": "PASS",
+        "product_guardian": "READY",
     }
 
     with open(args.output, "w", encoding="utf-8") as handle:
