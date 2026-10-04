@@ -773,6 +773,7 @@ function OnlineTable({
   const [historyActions, setHistoryActions] = useState<HandActionEntry[]>([]);
   const [myHistory, setMyHistory] = useState<PlayerHandHistoryEntry[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const handId = table.active_hand?.hand_id ?? null;
 
   useEffect(() => {
@@ -906,6 +907,15 @@ function OnlineTable({
           </span>
         </div>
         <div className="table-header-actions">
+          <button
+            className="table-icon-button table-history-button"
+            type="button"
+            aria-label="История рук"
+            aria-expanded={historyOpen}
+            onClick={() => setHistoryOpen(true)}
+          >
+            ≡
+          </button>
           <button
             className="table-icon-button"
             type="button"
@@ -1088,34 +1098,88 @@ function OnlineTable({
         </div>
       )}
 
-      <details id="table-history" className="history-panel history-panel-compact">
-        <summary>История последней раздачи</summary>
-        {history[0] ? (
-          <>
-            <p>Pot {history[0].pot}</p>
-            <div className="history-actions">
-              {historyActions.map((item) => (
-                <span key={item.action_no}>
-                  #{item.action_no} · Seat {item.seat_no} · {item.action}
-                  {item.amount === null ? "" : " " + item.amount}
-                </span>
-              ))}
-            </div>
-            {myHistory[0] ? (
-              <div className="my-hand-history">
-                <p>
-                  Мои карты: {myHistory[0].hole_cards.join(" ")}
-                  {myHistory[0].board.length > 0
-                    ? " · Board " + myHistory[0].board.join(" ")
-                    : ""}
-                </p>
+      {historyOpen ? (
+        <div
+          className="table-drawer-backdrop"
+          role="presentation"
+          onClick={() => setHistoryOpen(false)}
+        >
+          <aside
+            className="table-history-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="История рук"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="table-drawer-handle" aria-hidden="true" />
+            <header className="table-drawer-header">
+              <div>
+                <span>ИГРА</span>
+                <h3>История рук</h3>
               </div>
-            ) : null}
-          </>
-        ) : (
-          <p>Завершённых раздач пока нет.</p>
-        )}
-      </details>
+              <button
+                className="table-drawer-close"
+                type="button"
+                aria-label="Закрыть историю"
+                onClick={() => setHistoryOpen(false)}
+              >
+                ×
+              </button>
+            </header>
+
+            {history[0] ? (
+              <>
+                <section className="history-hand-summary" aria-label="Последняя раздача">
+                  <div>
+                    <span>POT</span>
+                    <strong>{formatBb(history[0].pot)}</strong>
+                    <small>{history[0].pot.toLocaleString()} chips</small>
+                  </div>
+                  {myHistory[0] ? (
+                    <div className="history-my-cards">
+                      <span>МОИ КАРТЫ</span>
+                      <strong>{myHistory[0].hole_cards.join(" ")}</strong>
+                    </div>
+                  ) : null}
+                </section>
+
+                {myHistory[0]?.board.length ? (
+                  <p className="history-board">
+                    Board · {myHistory[0].board.join(" ")}
+                  </p>
+                ) : null}
+
+                <div className="history-actions history-actions-drawer" aria-label="Действия раздачи">
+                  {historyActions.length > 0 ? historyActions.map((item) => (
+                    <article key={item.action_no}>
+                      <span>#{item.action_no}</span>
+                      <strong>Seat {item.seat_no}</strong>
+                      <b>{item.action}</b>
+                      <small>{item.amount === null ? "—" : item.amount.toLocaleString()}</small>
+                    </article>
+                  )) : (
+                    <p>Действия этой раздачи ещё не записаны.</p>
+                  )}
+                </div>
+
+                {history.length > 1 ? (
+                  <section className="history-recent-list" aria-label="Недавние раздачи">
+                    <span>НЕДАВНИЕ</span>
+                    {history.slice(1, 5).map((hand) => (
+                      <article key={hand.hand_id}>
+                        <strong>{formatBb(hand.pot)}</strong>
+                        <small>{hand.pot.toLocaleString()} chips</small>
+                      </article>
+                    ))}
+                  </section>
+                ) : null}
+              </>
+            ) : (
+              <p className="history-empty">Завершённых раздач пока нет.</p>
+            )}
+          </aside>
+        </div>
+      ) : null}
     </section>
   );
 }
