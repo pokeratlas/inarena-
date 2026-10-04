@@ -23,7 +23,7 @@ test("Table V2 keeps hero, opponents and board readable on mobile and desktop @g
   const table = await created.json();
 
   const players: Array<{ user: string; sessionId: string; seat: number }> = [];
-  for (const seat of [1, 2]) {
+  for (const seat of [1, 2, 3, 4, 5, 6, 7]) {
     const user = `table-v2-${suffix}-${seat}`;
     expect((await request.post(`${API}/api/v1/operator/balance`, {
       headers: operator,
@@ -34,7 +34,7 @@ test("Table V2 keeps hero, opponents and board readable on mobile and desktop @g
       data: {
         user_id: user,
         provider: "test",
-        data: { telegram_user: { first_name: seat === 1 ? "Hero" : "Opponent" } },
+        data: { telegram_user: { first_name: seat === 1 ? "Hero" : `Opponent ${seat}` } },
       },
     });
     expect(sessionResponse.ok()).toBeTruthy();
@@ -68,10 +68,10 @@ test("Table V2 keeps hero, opponents and board readable on mobile and desktop @g
 
   const stage = page.getByLabel("Стол INARENA", { exact: true });
   const hero = page.getByLabel("Ваше место", { exact: true });
-  const opponent = page.getByLabel("Игрок Opponent", { exact: true });
+  const opponents = page.locator(".opponent-seat");
   await expect(stage).toBeVisible();
   await expect(hero).toBeVisible();
-  await expect(opponent).toBeVisible();
+  await expect(opponents).toHaveCount(6);
   await expect(page.getByLabel("Ваши карты")).toBeVisible();
   await expect(page.getByLabel("Общие карты")).toBeVisible();
   await expect(page.locator(".pot-display-v2")).toContainText("BB");
@@ -79,22 +79,32 @@ test("Table V2 keeps hero, opponents and board readable on mobile and desktop @g
   const geometry = await page.evaluate(() => {
     const stage = document.querySelector('[aria-label="Стол INARENA"]')!.getBoundingClientRect();
     const hero = document.querySelector('[aria-label="Ваше место"]')!.getBoundingClientRect();
-    const opponent = document.querySelector('[aria-label="Игрок Opponent"]')!.getBoundingClientRect();
+    const opponents = Array.from(document.querySelectorAll(".opponent-seat"))
+      .map((element) => element.getBoundingClientRect());
     return {
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
       stageLeft: stage.left,
       stageRight: stage.right,
+      stageTop: stage.top,
+      stageBottom: stage.bottom,
       heroCenter: hero.top + hero.height / 2,
-      opponentCenter: opponent.top + opponent.height / 2,
       stageCenter: stage.top + stage.height / 2,
+      maxOpponentCenter: Math.max(...opponents.map((rect) => rect.top + rect.height / 2)),
+      opponentsInside: opponents.every((rect) =>
+        rect.left >= stage.left - 2 &&
+        rect.right <= stage.right + 2 &&
+        rect.top >= stage.top - 2 &&
+        rect.bottom <= stage.bottom + 2
+      ),
     };
   });
   expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
   expect(geometry.stageLeft).toBeGreaterThanOrEqual(-1);
   expect(geometry.stageRight).toBeLessThanOrEqual(geometry.clientWidth + 1);
   expect(geometry.heroCenter).toBeGreaterThan(geometry.stageCenter);
-  expect(geometry.opponentCenter).toBeLessThan(geometry.stageCenter);
+  expect(geometry.maxOpponentCenter).toBeLessThan(geometry.heroCenter);
+  expect(geometry.opponentsInside).toBe(true);
 
   const info = page.getByRole("button", { name: "Информация о столе" });
   await expectUsableControls(page, [info]);
