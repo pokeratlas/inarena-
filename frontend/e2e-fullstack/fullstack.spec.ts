@@ -200,6 +200,15 @@ test("player profile shows only identity and refreshed balance @guardian-profile
   await expect(page.getByRole("heading", { name: "Профиль", exact: true })).toBeVisible();
   await expect(page.getByText("Beta Player", { exact: true })).toBeVisible();
   await expect(page.getByText(userId, { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Карточка игрока")).toBeVisible();
+  await expect(page.getByLabel("Баланс игрока")).toBeVisible();
+  await expect(page.getByLabel("Статистика игрока")).toBeVisible();
+  await expect(page.getByLabel("Последняя активность")).toBeVisible();
+  const profileGeometry = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(profileGeometry.scrollWidth).toBeLessThanOrEqual(profileGeometry.clientWidth);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   await expectUsableControls(page, [page.getByRole("button", { name: "Скопировать ID" })]);
   await page.getByRole("button", { name: "Скопировать ID" }).click();
