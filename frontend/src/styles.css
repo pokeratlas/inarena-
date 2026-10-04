@@ -2731,23 +2731,23 @@ body,
 /* 6-max */
 .opponent-layer[data-count="5"] .opponent-seat-0 {
   left: 9%;
-  top: 31%;
+  top: 58%;
 }
 .opponent-layer[data-count="5"] .opponent-seat-1 {
-  left: 27%;
-  top: 8%;
+  left: 14%;
+  top: 24%;
 }
 .opponent-layer[data-count="5"] .opponent-seat-2 {
-  left: 73%;
-  top: 8%;
+  left: 50%;
+  top: 7%;
 }
 .opponent-layer[data-count="5"] .opponent-seat-3 {
-  left: 91%;
-  top: 31%;
+  left: 86%;
+  top: 24%;
 }
 .opponent-layer[data-count="5"] .opponent-seat-4 {
-  left: 50%;
-  top: 72%;
+  left: 91%;
+  top: 58%;
 }
 
 /* Fixed INARENA 7-max: hero bottom + six opponents around the remaining arc. */
