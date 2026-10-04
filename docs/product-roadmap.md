@@ -14,31 +14,32 @@ not automatically pause the agreed work.
   reconnect feedback and sit-out-safe return behavior.
 - Owner Quick Credit v1: Player ID quick credit presets, authoritative resulting
   balance, existing audited ledger mutation, and Table Manager status filters.
+- Network Recovery v1: active-hand offline gap, locked disconnected actions,
+  bounded reconnect, request-ID correlation and duplicate-action protection in
+  both desktop and mobile Guardian projects.
 
 These increments were promoted sequentially only after same-SHA CI gates passed.
 
-## Current reviewable increment
+## Current milestone
 
-Network Recovery v1 extends Product Guardian around a live cash hand. It forces a
-browser offline gap while the disconnected player is the actor, verifies action
-controls are locked, advances the authoritative server state with an idempotent
-mutation carrying a request ID, reconnects, checks the client catches up to the
-next hand within budget, and proves the fold was recorded exactly once. Desktop
-and mobile Guardian projects both require the journey.
+Real Telegram/iPhone two-player dry run on public staging. Preserve evidence for:
+authentication/session restore, OFFLINE -> ONLINE, seating, private cards, action
+controls, automatic next hand, background/foreground recovery, forced network
+loss/recovery, chat, return-to-table and clean table exit.
 
-No game-rule, schema, ledger, role, deployment or production semantics change.
+Public staging is available for this milestone. The remaining verification is
+real-device behavior; browser emulation does not substitute for it.
 
 ## Next small increments
 
-1. Verify and promote Network Recovery v1 through same-SHA backend/frontend/Guardian CI.
-2. Perform the real Telegram/iPhone two-player dry run and preserve its evidence.
-3. Add deeper frontend/API/game-engine correlation only where the dry run exposes
-   diagnostic gaps; existing request IDs, structured logs and browser traces remain
-   the starting point.
+1. Complete and record the real Telegram/iPhone two-player dry run.
+2. Fix only concrete blocker/correctness/UX issues observed in the dry run.
+3. Repeat the hosted PostgreSQL backup/restore drill against the selected staging
+   database before invited-user beta.
 4. Establish performance baselines after a stable closed-beta environment exists.
 5. Add richer chat or owner controls only from observed closed-beta friction.
 
 Real User Intelligence/session analytics remain deferred until closed-beta users
 exist. No PostHog or OpenTelemetry rollout is required yet. Existing backend
-observability and browser traces remain the initial diagnostic tools. No production
-deployment or user messaging is implied by this roadmap.
+observability, request IDs and browser traces remain the initial diagnostic tools.
+No production deployment or public user messaging is implied by this roadmap.
