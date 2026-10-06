@@ -9,7 +9,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from .db import connect, transaction
-from .poker import evaluate_seven
+from adapters.inarena.evaluator import evaluate_seven
+from poker_core.cards import validate_cards, validate_disjoint
+from . import shared_mechanics
 
 
 TABLE_MAX_SEATS = 7
@@ -1839,6 +1841,7 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
             (table_id,),
         ).fetchall()
         seats = [dict(row) for row in seat_rows]
+        shared_initial_stacks = [int(row["stack"]) for row in seats]
         if len(seats) < 2:
             raise ConflictError("at least two funded players are required")
 
@@ -1870,6 +1873,7 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
             for rank in "23456789TJQKA"
             for suit in "cdhs"
         ]
+        validate_cards(deck, count=52)
         secrets.SystemRandom().shuffle(deck)
         private_cards: dict[str, list[str]] = {}
         for row in seats:
@@ -1920,6 +1924,8 @@ def start_hand(table_id: str, button_seat: int | None = None) -> dict:
         pot = sb_paid + bb_paid
         state = {
             "hand_id": hand_id,
+            "mechanics_version": shared_mechanics.CORE_VERSION,
+            "shared_initial_stacks": shared_initial_stacks,
             "street": "preflop",
             "pot": pot,
             "button_seat": button,
@@ -2019,6 +2025,11 @@ def _draw_from_deck(conn, hand_id: str, count: int) -> list[str]:
     if len(deck) < count:
         raise ConflictError("not enough cards in deck")
     cards = [deck.pop() for _ in range(count)]
+    validate_cards(cards, count=count)
+    public_row = conn.execute("SELECT state_json FROM active_hands WHERE hand_id = ?", (hand_id,)).fetchone()
+    public_board = json.loads(public_row["state_json"]).get("board", []) if public_row else []
+    private_rows = conn.execute("SELECT cards_json FROM hand_private_cards WHERE hand_id = ?", (hand_id,)).fetchall()
+    validate_disjoint(cards, public_board, *(json.loads(row["cards_json"]) for row in private_rows))
     conn.execute(
         "UPDATE hand_secrets SET deck_json = ? WHERE hand_id = ?",
         (json.dumps(deck, separators=(",", ":")), hand_id),
@@ -2084,57 +2095,38 @@ def submit_player_action(
         if seat["seat_no"] != hand["action_seat"]:
             raise ConflictError("not this player's turn")
 
+        try:
+            shared_before, shared_after, shared_ids, shared_physical = shared_mechanics.prepare_action(
+                conn, hand["hand_id"], state, player_id, action, amount)
+        except ValueError as exc:
+            raise ConflictError(str(exc)) from exc
         contributions = dict(state.get("contributions", {}))
         street_contributions = dict(state.get("street_contributions", {}))
         folded = set(state.get("folded", []))
         acted = set(state.get("acted", []))
+        if action_no > 0 and "last_acted_bet" not in state:
+            raise ConflictError("active legacy hand cannot change rules engine")
+        last_acted_bet = dict(state.get("last_acted_bet", {}))
         current_bet = int(state.get("current_bet", 0))
         min_raise = int(state.get("min_raise", state.get("big_blind", 1)))
         player_street = int(street_contributions.get(player_id, 0))
         total_contribution = int(contributions.get(player_id, 0))
         stack = int(seat["stack"])
-        paid = 0
-
+        shared_player = shared_after.players[shared_ids.index(player_id)]
+        paid = stack - shared_player.stack_units
+        previous_bet = current_bet
+        previous_min_raise = min_raise
+        current_bet = shared_after.current_bet_units
+        min_raise = shared_after.min_raise_units
         if action == "fold":
             folded.add(player_id)
-            acted.add(player_id)
-        elif action == "check":
-            if player_street != current_bet:
-                raise ConflictError("cannot check facing a bet")
-            acted.add(player_id)
-        elif action == "call":
-            due = max(0, current_bet - player_street)
-            if due == 0:
-                raise ConflictError("nothing to call")
-            paid = min(due, stack)
-            acted.add(player_id)
+        full_raise = action in ("bet", "raise") and current_bet - previous_bet >= previous_min_raise
+        if full_raise:
+            acted = {player_id}
         else:
-            if amount is None or amount < 0:
-                raise ConflictError("amount is required")
-            target = int(amount)
-            if target <= current_bet:
-                raise ConflictError("bet or raise must exceed current bet")
-            paid = target - player_street
-            if paid <= 0 or paid > stack:
-                raise ConflictError("insufficient stack for action")
+            acted.add(player_id)
 
-            raise_size = target - current_bet
-            is_all_in = paid == stack
-            if current_bet == 0:
-                full_raise = target >= min_raise
-            else:
-                full_raise = raise_size >= min_raise
-
-            if not full_raise and not is_all_in:
-                raise ConflictError("raise is below minimum")
-
-            current_bet = target
-            if full_raise:
-                min_raise = target if state.get("current_bet", 0) == 0 else raise_size
-                acted = {player_id}
-            else:
-                acted.add(player_id)
-
+        last_acted_bet[player_id] = current_bet
         new_stack = stack
         if paid:
             new_stack = stack - paid
@@ -2219,6 +2211,7 @@ def submit_player_action(
                         row["player_id"]: 0 for row in participants
                     }
                     acted = set()
+                    last_acted_bet = {}
                     available = [
                         row for row in participants if int(row["stack"]) > 0
                     ]
@@ -2237,8 +2230,15 @@ def submit_player_action(
                         int(seat["seat_no"]),
                     )["seat_no"]
 
+        shared_transition = shared_after
+        while shared_transition.street != street:
+            count = 3 if shared_transition.street == "preflop" else 1
+            shared_transition = shared_mechanics.advance_street(shared_transition, cards=tuple(board[len(shared_transition.board):len(shared_transition.board)+count]))
+        if tuple(board) != shared_transition.board or next_pot != shared_transition.pot_units:
+            raise ConflictError("shared/native street or pot semantic mismatch")
         state.update(
             {
+                "last_acted_bet": last_acted_bet,
                 "street": street,
                 "pot": next_pot,
                 "board": board,
@@ -2286,11 +2286,14 @@ def submit_player_action(
                 )
                 for row in seats
             }
+            shared_payouts = shared_mechanics.payouts(conn, hand["hand_id"], state)
+            if payouts != shared_payouts:
+                raise ConflictError("shared/native uncontested payout semantic mismatch")
             _settle_payouts_in_conn(
                 conn,
                 table_id,
                 {"hand_id": hand["hand_id"], "pot": next_pot},
-                payouts,
+                shared_payouts,
             )
             event_type = "hand_completed"
         else:
@@ -2687,7 +2690,11 @@ def _calculate_showdown_payouts_in_conn(
         raise ConflictError("contribution ledger does not match pot")
 
     payouts = {player["player_id"]: 0 for player in all_players}
+    from poker_core.domain import side_pots
+    ordered_ids = [p["player_id"] for p in sorted(all_players, key=lambda p: int(p["seat_no"]))]
+    shared_tiers = side_pots(tuple(contributions.get(pid, 0) for pid in ordered_ids), tuple(pid in folded for pid in ordered_ids))
     levels = sorted(set(contributions.values()))
+    observed_tiers = []
     previous = 0
     for level in levels:
         contributors = [
@@ -2705,6 +2712,7 @@ def _calculate_showdown_payouts_in_conn(
         if not eligible:
             continue
 
+        observed_tiers.append((side_pot, tuple(ordered_ids.index(pid) for pid in eligible)))
         best = max(scores[player_id] for player_id in eligible)
         winners = sorted(
             (
@@ -2722,7 +2730,15 @@ def _calculate_showdown_payouts_in_conn(
 
     if sum(payouts.values()) != pot:
         raise ConflictError("side-pot payout calculation mismatch")
-    return payouts
+    if tuple(observed_tiers) != shared_tiers:
+        raise ConflictError("shared/native side pot semantic mismatch")
+    try:
+        shared_payouts = shared_mechanics.payouts(conn, hand["hand_id"], state)
+    except ValueError as exc:
+        raise ConflictError(str(exc)) from exc
+    if payouts != shared_payouts:
+        raise ConflictError("shared/native settlement semantic mismatch")
+    return shared_payouts
 
 
 def calculate_showdown_payouts(table_id: str) -> dict[str, int]:

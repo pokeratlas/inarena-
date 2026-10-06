@@ -3,6 +3,7 @@ name = "inarena-backend"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+  "poker-shared-core==0.2.2",
   "fastapi>=0.115,<1",
   "uvicorn[standard]>=0.30,<1",
 ]

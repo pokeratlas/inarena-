@@ -184,65 +184,30 @@ def test_uncontested_fold_auto_settles_and_creates_history(env):
 
 def test_side_pots_are_split_by_contribution_tiers(env):
     client, db_path, service = env
-    table_id = make_table(
-        client,
-        {"p1": 1000, "p2": 1000, "p3": 1000},
-    )
-    started = client.post(
-        f"/api/v1/tables/{table_id}/start-hand",
-        json={"button_seat": 1},
-    ).json()
+    # Build a real persisted action trace, instead of overwriting a preflop
+    # snapshot into a fictitious river without action history.
+    table_id = client.post("/api/v1/tables", json={"name": "Side pots"}).json()["id"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE runtime_tables SET cash_buyin_min=1 WHERE id=?", (table_id,))
+    for seat, (player, stack) in enumerate({"p1":100, "p2":300, "p3":300}.items(), 1):
+        assert client.post(f"/api/v1/tables/{table_id}/join", json={"player_id":player,"seat_no":seat,"stack":stack}).status_code == 200
+    started = client.post(f"/api/v1/tables/{table_id}/start-hand", json={"button_seat":1}).json()
     hand_id = started["active_hand"]["hand_id"]
+    board = ["2c", "3d", "4h", "5s", "9c"]
+    cards = {"p1":["Ah","Kd"], "p2":["9d","9h"], "p3":["Ad","Ac"]}
+    with sqlite3.connect(db_path) as conn:
+        for player, hole in cards.items():
+            conn.execute("UPDATE hand_private_cards SET cards_json=? WHERE hand_id=? AND player_id=?", (json.dumps(hole),hand_id,player))
+        used = set(board + [c for hole in cards.values() for c in hole])
+        remaining = [r+s for r in "23456789TJQKA" for s in "cdhs" if r+s not in used]
+        conn.execute("UPDATE hand_secrets SET deck_json=? WHERE hand_id=?", (json.dumps(remaining + list(reversed(board))),hand_id))
+    for number, (player, kind, amount) in enumerate([("p1","call",None),("p2","raise",300),("p3","call",None)]):
+        service.submit_player_action(table_id, player, kind, number, amount=amount)
 
-    conn = sqlite3.connect(db_path)
-    try:
-        row = conn.execute(
-            "SELECT state_json FROM active_hands WHERE table_id = ?",
-            (table_id,),
-        ).fetchone()
-        state = json.loads(row[0])
-        state.update(
-            {
-                "pot": 700,
-                "board": ["2c", "3d", "4h", "5s", "9c"],
-                "showdown_pending": True,
-                "folded": [],
-                "contributions": {
-                    "p1": 100,
-                    "p2": 300,
-                    "p3": 300,
-                },
-                "action_seat": None,
-                "street": "river",
-            }
-        )
-        conn.execute(
-            """
-            UPDATE active_hands
-            SET pot = 700, street = 'river', action_seat = NULL,
-                state_json = ?
-            WHERE table_id = ?
-            """,
-            (json.dumps(state, separators=(",", ":")), table_id),
-        )
-        cards = {
-            "p1": ["Ah", "Kd"],
-            "p2": ["9d", "9h"],
-            "p3": ["Ad", "Ac"],
-        }
-        for player_id, hole in cards.items():
-            conn.execute(
-                """
-                UPDATE hand_private_cards
-                SET cards_json = ?
-                WHERE hand_id = ? AND player_id = ?
-                """,
-                (json.dumps(hole), hand_id, player_id),
-            )
-        conn.commit()
-    finally:
-        conn.close()
-
-    payouts = service.calculate_showdown_payouts(table_id)
+    # Normal consumer flow settles the all-in hand inside the final transaction.
+    with sqlite3.connect(db_path) as conn:
+        result = conn.execute("SELECT pot,payouts_json FROM hand_results WHERE hand_id=?", (hand_id,)).fetchone()
+    assert result[0] == 700
+    payouts = json.loads(result[1])
     assert payouts == {"p1": 150, "p2": 0, "p3": 550}
     assert sum(payouts.values()) == 700
